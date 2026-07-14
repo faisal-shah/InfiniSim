@@ -3,6 +3,7 @@
 #include <cerrno>
 #include <cstdio>
 #include <cstring>
+#include <csignal>
 #include <fcntl.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
@@ -54,6 +55,11 @@ GattBridge::~GattBridge() {
 }
 
 bool GattBridge::Start(uint16_t port) {
+  // A companion that disconnects mid-response would otherwise raise SIGPIPE on
+  // our write() and kill the whole simulator. Ignore it process-wide and rely
+  // on write() returning EPIPE, which we turn into an orderly client close.
+  signal(SIGPIPE, SIG_IGN);
+
   listenFd = socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK, 0);
   if (listenFd < 0) {
     perror("gatt-bridge socket");
@@ -66,7 +72,7 @@ bool GattBridge::Start(uint16_t port) {
   addr.sin_family = AF_INET;
   addr.sin_addr.s_addr = htonl(INADDR_ANY); // Android emulator reaches us via 10.0.2.2
   addr.sin_port = htons(port);
-  if (bind(listenFd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) != 0 || listen(listenFd, 1) != 0) {
+  if (bind(listenFd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) != 0 || listen(listenFd, 16) != 0) {
     perror("gatt-bridge bind/listen");
     close(listenFd);
     listenFd = -1;
@@ -92,11 +98,15 @@ void GattBridge::Poll() {
     return;
   }
 
-  // A new connection replaces any existing client, mirroring how a BLE
-  // reconnect supersedes the old link. This also prevents a wedged client
-  // from blocking the bridge forever.
-  const int incoming = accept4(listenFd, nullptr, nullptr, SOCK_NONBLOCK);
-  if (incoming >= 0) {
+  // Drain the whole accept queue each poll, keeping only the newest connection
+  // (a new connection supersedes the old link, like a BLE reconnect). Accepting
+  // just one per poll let concurrent connectors pile up in the backlog as
+  // half-closed CLOSE-WAIT sockets and eventually starve the bridge.
+  for (;;) {
+    const int incoming = accept4(listenFd, nullptr, nullptr, SOCK_NONBLOCK);
+    if (incoming < 0) {
+      break;
+    }
     CloseClient();
     clientFd = incoming;
     const int one = 1;
@@ -224,8 +234,11 @@ void GattBridge::SendResponse(uint8_t status, const uint8_t* payload, uint16_t l
   uint8_t header[3];
   header[0] = status;
   std::memcpy(&header[1], &len, sizeof(len));
-  // Best effort: the socket is non-blocking but responses are tiny.
-  if (write(clientFd, header, sizeof(header)) < 0 || (len > 0 && write(clientFd, payload, len) < 0)) {
+  // MSG_NOSIGNAL is belt-and-suspenders alongside the SIG_IGN in Start(): a
+  // vanished client yields EPIPE, which we treat as an orderly disconnect
+  // rather than crashing the simulator.
+  if (send(clientFd, header, sizeof(header), MSG_NOSIGNAL) < 0 ||
+      (len > 0 && send(clientFd, payload, len, MSG_NOSIGNAL) < 0)) {
     CloseClient();
   }
 }
