@@ -92,14 +92,19 @@ void GattBridge::Poll() {
     return;
   }
 
-  if (clientFd < 0) {
-    clientFd = accept4(listenFd, nullptr, nullptr, SOCK_NONBLOCK);
-    if (clientFd < 0) {
-      return;
-    }
+  // A new connection replaces any existing client, mirroring how a BLE
+  // reconnect supersedes the old link. This also prevents a wedged client
+  // from blocking the bridge forever.
+  const int incoming = accept4(listenFd, nullptr, nullptr, SOCK_NONBLOCK);
+  if (incoming >= 0) {
+    CloseClient();
+    clientFd = incoming;
     const int one = 1;
     setsockopt(clientFd, IPPROTO_TCP, TCP_NODELAY, &one, sizeof(one));
     rxLen = 0;
+  }
+  if (clientFd < 0) {
+    return;
   }
 
   while (true) {
