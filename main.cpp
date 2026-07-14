@@ -26,6 +26,7 @@
 
 // get PineTime header
 #include "displayapp/InfiniTimeTheme.h"
+#include "displayapp/LvglGuard.h"
 #include <drivers/Hrs3300.h>
 #include <drivers/Bma421.h>
 
@@ -982,6 +983,9 @@ public:
 
   // render the current status of the simulated controller
   void refresh_screen() {
+    // Serialize against the DisplayApp task: both this function and the
+    // display task drive LVGL (see sim/displayapp/LvglGuard.h).
+    LVGL_GUARD();
     const Pinetime::Controllers::BrightnessController::Levels level = brightnessController.Level();
     if (level == Pinetime::Controllers::BrightnessController::Levels::Off) {
       if (!screen_off_created) {
