@@ -28,6 +28,7 @@
 // get PineTime header
 #include "displayapp/InfiniTimeTheme.h"
 #include "displayapp/LvglGuard.h"
+#include "sim/gatt_bridge.h"
 #include <drivers/Hrs3300.h>
 #include <drivers/Bma421.h>
 
@@ -1232,10 +1233,17 @@ int main(int argc, char** argv) {
   // parse arguments
   bool fw_status_window_visible = true;
   bool arg_help = false;
+  long gatt_bridge_port = 0;
   for (int i = 1; i < argc; i++) {
     const std::string arg(argv[i]);
     if (arg == "--hide-status") {
       fw_status_window_visible = false;
+    } else if (arg == "--gatt-bridge" && i + 1 < argc) {
+      gatt_bridge_port = std::strtol(argv[++i], nullptr, 10);
+      if (gatt_bridge_port <= 0 || gatt_bridge_port > 65535) {
+        std::cout << "invalid --gatt-bridge port" << std::endl;
+        return 1;
+      }
     } else if (arg == "-h" || arg == "--help") {
       arg_help = true;
     } else {
@@ -1246,8 +1254,9 @@ int main(int argc, char** argv) {
   if (arg_help) {
     std::cout << "Usage: " << argv[0] << " [options]" << std::endl;
     std::cout << "Options:" << std::endl;
-    std::cout << "  -h, --help           show this help message and exit" << std::endl;
-    std::cout << "      --hide-status    don't show simulator status window, so only lvgl window is open" << std::endl;
+    std::cout << "  -h, --help             show this help message and exit" << std::endl;
+    std::cout << "      --hide-status      don't show simulator status window, so only lvgl window is open" << std::endl;
+    std::cout << "      --gatt-bridge PORT expose watch characteristics on a local TCP port (see sim/gatt_bridge.h)" << std::endl;
     return 0;
   }
 
@@ -1262,9 +1271,17 @@ int main(int argc, char** argv) {
   // initialize the core of our Simulator
   Framework fw(fw_status_window_visible, 240, 240);
 
+  GattBridge gattBridge(systemTask, dateTimeController, batteryController);
+  if (gatt_bridge_port != 0 && !gattBridge.Start(static_cast<uint16_t>(gatt_bridge_port))) {
+    return 1;
+  }
+
   while (1) {
     fw.handle_keys(); // key event polling
     fw.handle_touch_and_button();
+    if (gatt_bridge_port != 0) {
+      gattBridge.Poll();
+    }
     fw.refresh();
     usleep(LV_DISP_DEF_REFR_PERIOD * 1000);
   }

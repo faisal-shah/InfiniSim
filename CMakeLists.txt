@@ -136,6 +136,8 @@ target_sources(infinisim PUBLIC
   sim/components/ble/NimbleController.cpp
   sim/displayapp/LvglGuard.h
   sim/displayapp/LvglGuard.cpp
+  sim/gatt_bridge.h
+  sim/gatt_bridge.cpp
   sim/components/brightness/BrightnessController.h
   sim/components/brightness/BrightnessController.cpp
   sim/components/firmwarevalidator/FirmwareValidator.h

@@ -1,0 +1,63 @@
+#pragma once
+
+// TCP "GATT bridge": exposes the watch's BLE characteristics over a local TCP
+// socket so a companion app (or test script) can drive the simulator with the
+// exact bytes it would write over the radio. This is the no-hardware
+// end-to-end link between the PineTimeCompanion Android app running in an
+// emulator (host reachable as 10.0.2.2) and InfiniSim.
+//
+// Protocol (all little-endian):
+//   request:  [charId u8][op u8: 0=write, 1=read][len u16][payload len bytes]
+//   response: [status u8: 0=ok][len u16][payload len bytes]
+//
+// charId  endpoint                          op
+//   0     Schedule Sync Command 00060001    write -> ScheduleService::OnCommand
+//   1     Schedule Digest       00060002    read  -> ScheduleService::OnCommand
+//   2     Current Time          0x2A2B      write -> DateTimeController::SetTime
+//   3     New Alert             0x2A46      write -> AlertNotificationService::OnAlert
+//   4     Battery Level         0x2A19      read  -> BatteryController percent
+//
+// Single client at a time; polled from the SDL main loop (same thread as the
+// keyboard injectors, so calling the GATT handlers directly is safe).
+
+#include <cstdint>
+#include <cstddef>
+
+namespace Pinetime {
+  namespace Controllers {
+    class DateTime;
+    class Battery;
+  }
+
+  namespace System {
+    class SystemTask;
+  }
+}
+
+class GattBridge {
+public:
+  GattBridge(Pinetime::System::SystemTask& systemTask,
+             Pinetime::Controllers::DateTime& dateTimeController,
+             Pinetime::Controllers::Battery& batteryController);
+  ~GattBridge();
+
+  bool Start(uint16_t port);
+  void Poll(); // call every main-loop iteration; non-blocking
+
+private:
+  enum class CharId : uint8_t { ScheduleSync = 0, ScheduleDigest = 1, CurrentTime = 2, NewAlert = 3, Battery = 4 };
+
+  void HandleRequest();
+  uint8_t Dispatch(uint8_t charId, uint8_t op, const uint8_t* payload, uint16_t len, uint8_t* out, uint16_t& outLen);
+  void SendResponse(uint8_t status, const uint8_t* payload, uint16_t len);
+  void CloseClient();
+
+  Pinetime::System::SystemTask& systemTask;
+  Pinetime::Controllers::DateTime& dateTimeController;
+  Pinetime::Controllers::Battery& batteryController;
+
+  int listenFd = -1;
+  int clientFd = -1;
+  uint8_t rxBuffer[512];
+  size_t rxLen = 0;
+};
