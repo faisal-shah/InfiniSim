@@ -13,6 +13,7 @@
 #include "host/ble_gatt.h"
 #include "host/ble_uuid.h"
 #include "components/ble/ScheduleService.h"
+#include "components/ble/PrayerService.h"
 #include "components/ble/AlertNotificationService.h"
 #include "components/battery/BatteryController.h"
 #include "components/datetime/DateTimeController.h"
@@ -28,9 +29,9 @@ namespace {
     ble_uuid128_t uuid {};
     ble_gatt_access_ctxt ctxt {};
 
-    FakeGattAccess(uint8_t op, uint8_t charIdByte, uint8_t* data, uint16_t len) {
+    FakeGattAccess(uint8_t op, uint8_t charIdByte, uint8_t* data, uint16_t len, uint8_t serviceByte = 0x06) {
       uuid = ble_uuid128_t {.u = {.type = BLE_UUID_TYPE_128},
-                            .value = {0xd0, 0x42, 0x19, 0x3a, 0x3b, 0x43, 0x23, 0x8e, 0xfe, 0x48, 0xfc, 0x78, charIdByte, 0x00, 0x06, 0x00}};
+                            .value = {0xd0, 0x42, 0x19, 0x3a, 0x3b, 0x43, 0x23, 0x8e, 0xfe, 0x48, 0xfc, 0x78, charIdByte, 0x00, serviceByte, 0x00}};
       chrDef.uuid = &uuid.u;
       buffer.om_data = data;
       buffer.om_len = op == BLE_GATT_ACCESS_OP_WRITE_CHR ? len : 0;
@@ -211,6 +212,20 @@ uint8_t GattBridge::Dispatch(uint8_t charId, uint8_t op, const uint8_t* payload,
       }
       FakeGattAccess access(BLE_GATT_ACCESS_OP_READ_CHR, 0x03, out, 0);
       const int rc = systemTask.nimble().schedule().OnCommand(&access.ctxt);
+      if (rc != 0) {
+        return static_cast<uint8_t>(rc);
+      }
+      outLen = access.buffer.om_len;
+      return 0;
+    }
+
+    case CharId::PrayerSettings: {
+      if (op == 0) {
+        FakeGattAccess access(BLE_GATT_ACCESS_OP_WRITE_CHR, 0x01, const_cast<uint8_t*>(payload), len, 0x07);
+        return static_cast<uint8_t>(systemTask.nimble().prayer().OnCommand(&access.ctxt));
+      }
+      FakeGattAccess access(BLE_GATT_ACCESS_OP_READ_CHR, 0x01, out, 0, 0x07);
+      const int rc = systemTask.nimble().prayer().OnCommand(&access.ctxt);
       if (rc != 0) {
         return static_cast<uint8_t>(rc);
       }

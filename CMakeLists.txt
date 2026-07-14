@@ -221,6 +221,8 @@ target_sources(infinisim PUBLIC
   ${InfiniTime_DIR}/src/components/ble/SimpleWeatherService.cpp
   ${InfiniTime_DIR}/src/components/ble/ScheduleService.h
   ${InfiniTime_DIR}/src/components/ble/ScheduleService.cpp
+  ${InfiniTime_DIR}/src/components/ble/PrayerService.h
+  ${InfiniTime_DIR}/src/components/ble/PrayerService.cpp
   ${InfiniTime_DIR}/src/components/fs/FS.h
   ${InfiniTime_DIR}/src/components/fs/FS.cpp
   ${InfiniTime_DIR}/src/components/motion/MotionController.h
