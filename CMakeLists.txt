@@ -192,6 +192,8 @@ target_sources(infinisim PUBLIC
   ${InfiniTime_DIR}/src/components/stopwatch/StopWatchController.cpp
   ${InfiniTime_DIR}/src/components/alarm/AlarmController.h
   ${InfiniTime_DIR}/src/components/alarm/AlarmController.cpp
+  ${InfiniTime_DIR}/src/components/schedule/ScheduleController.h
+  ${InfiniTime_DIR}/src/components/schedule/ScheduleController.cpp
   ${InfiniTime_DIR}/src/components/ble/BleController.h
   ${InfiniTime_DIR}/src/components/ble/BleController.cpp
   ${InfiniTime_DIR}/src/components/datetime/DateTimeController.h

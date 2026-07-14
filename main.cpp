@@ -10,6 +10,7 @@
 #define _DEFAULT_SOURCE /* needed for usleep() */
 #include <stdlib.h>
 #include <unistd.h>
+#include <cstring>
 #define SDL_MAIN_HANDLED /*To fix SDL's "undefined reference to WinMain" issue*/
 #include <SDL.h>
 #include "lvgl/lvgl.h"
@@ -368,6 +369,7 @@ Pinetime::Controllers::AlarmController alarmController {dateTimeController, fs};
 #else
 Pinetime::Controllers::AlarmController alarmController {dateTimeController};
 #endif
+Pinetime::Controllers::ScheduleController scheduleController {dateTimeController, fs};
 Pinetime::Controllers::TouchHandler touchHandler;
 Pinetime::Controllers::ButtonHandler buttonHandler;
 Pinetime::Controllers::BrightnessController brightnessController {};
@@ -388,6 +390,7 @@ Pinetime::Applications::DisplayApp displayApp(lcd,
 #endif
                                               stopWatchController,
                                               alarmController,
+                                              scheduleController,
                                               brightnessController,
                                               touchHandler,
                                               fs,
@@ -405,6 +408,7 @@ Pinetime::System::SystemTask systemTask(spi,
 #endif
                                         stopWatchController,
                                         alarmController,
+                                        scheduleController,
                                         watchdog,
                                         notificationManager,
                                         heartRateSensor,
@@ -689,6 +693,7 @@ public:
     debounce('h', 'H', state[SDL_SCANCODE_H], key_handled_h);
     debounce('i', 'I', state[SDL_SCANCODE_I], key_handled_i);
     debounce('w', 'W', state[SDL_SCANCODE_W], key_handled_w);
+    debounce('e', 'E', state[SDL_SCANCODE_E], key_handled_e);
     // screen switcher buttons
     debounce('1', '!' + 1, state[SDL_SCANCODE_1], key_handled_1);
     debounce('2', '!' + 2, state[SDL_SCANCODE_2], key_handled_2);
@@ -795,6 +800,10 @@ public:
       generate_weather_data(false);
     } else if (key == 'W') {
       generate_weather_data(true);
+    } else if (key == 'e') {
+      generate_schedule_data(false);
+    } else if (key == 'E') {
+      generate_schedule_data(true);
     } else if (key >= '0' && key <= '9') {
       this->switch_to_screen(key - '0');
     } else if (key >= '!' + 0 && key <= '!' + 9) {
@@ -873,6 +882,54 @@ public:
     }
     // send Forecast to SimpleWeatherService
     systemTask.nimble().weather().OnCommand(&ctxt);
+  }
+
+  // Temporary P1 injector: exercises the same staging + commit-via-SystemTask path
+  // the Schedule BLE service will use. Replaced by an os_mbuf injector in P2.
+  void generate_schedule_data(bool clear) {
+    static uint32_t scheduleVersion = 0;
+    scheduleVersion++;
+    auto& schedule = scheduleController;
+
+    if (clear) {
+      schedule.BeginStaging(0, scheduleVersion);
+      systemTask.PushMessage(Pinetime::System::Messages::ScheduleSyncReceived);
+      printf("InfiniSim: schedule cleared (version %u)\n", scheduleVersion);
+      return;
+    }
+
+    const time_t now = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
+    const time_t soonT = now + 120;
+    tm soon = *std::localtime(&soonT);
+
+    auto makeEvent = [](uint16_t id,
+                        Pinetime::Controllers::ScheduleController::RuleKind kind,
+                        uint8_t hour,
+                        uint8_t minute,
+                        const tm& anchor,
+                        uint8_t param,
+                        const char* title) {
+      Pinetime::Controllers::ScheduleController::Event e {};
+      e.id = id;
+      e.ruleKind = static_cast<uint8_t>(kind);
+      e.hour = hour;
+      e.minute = minute;
+      e.anchorYear = anchor.tm_year + 1900;
+      e.anchorMonth = anchor.tm_mon + 1;
+      e.anchorDay = anchor.tm_mday;
+      e.param = param;
+      e.flags = 0x01; // enabled
+      std::strncpy(e.title, title, sizeof(e.title) - 1);
+      return e;
+    };
+
+    using RuleKind = Pinetime::Controllers::ScheduleController::RuleKind;
+    schedule.BeginStaging(3, scheduleVersion);
+    schedule.StageEvent(0, makeEvent(1, RuleKind::OneShot, soon.tm_hour, soon.tm_min, soon, 0, "Test reminder"));
+    schedule.StageEvent(1, makeEvent(2, RuleKind::EveryNDays, 20, 30, soon, 1, "Brush teeth"));
+    schedule.StageEvent(2, makeEvent(3, RuleKind::Weekly, 17, 0, soon, 0x2A, "Quran practice"));
+    systemTask.PushMessage(Pinetime::System::Messages::ScheduleSyncReceived);
+    printf("InfiniSim: schedule injected (version %u, one-shot at %02d:%02d)\n", scheduleVersion, soon.tm_hour, soon.tm_min);
   }
 
   void generate_weather_data(bool clear) {
@@ -1054,6 +1111,7 @@ private:
   bool key_handled_h = false; // h ... set heartrate running, H ... stop heartrate
   bool key_handled_i = false; // i ... take screenshot, I ... start/stop Gif screen capture
   bool key_handled_w = false; // w ... generate weather data, W ... clear weather data
+  bool key_handled_e = false; // e ... inject test schedule, E ... clear schedule
   // numbers from 0 to 9 to switch between screens
   bool key_handled_1 = false;
   bool key_handled_2 = false;
