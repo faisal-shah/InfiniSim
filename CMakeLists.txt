@@ -134,6 +134,8 @@ target_sources(infinisim PUBLIC
   sim/components/battery/BatteryController.cpp
   sim/components/ble/NimbleController.h
   sim/components/ble/NimbleController.cpp
+  sim/displayapp/LvglGuard.h
+  sim/displayapp/LvglGuard.cpp
   sim/components/brightness/BrightnessController.h
   sim/components/brightness/BrightnessController.cpp
   sim/components/firmwarevalidator/FirmwareValidator.h
@@ -212,6 +214,8 @@ target_sources(infinisim PUBLIC
   ${InfiniTime_DIR}/src/components/ble/NotificationManager.cpp
   ${InfiniTime_DIR}/src/components/ble/SimpleWeatherService.h
   ${InfiniTime_DIR}/src/components/ble/SimpleWeatherService.cpp
+  ${InfiniTime_DIR}/src/components/ble/ScheduleService.h
+  ${InfiniTime_DIR}/src/components/ble/ScheduleService.cpp
   ${InfiniTime_DIR}/src/components/fs/FS.h
   ${InfiniTime_DIR}/src/components/fs/FS.cpp
   ${InfiniTime_DIR}/src/components/motion/MotionController.h

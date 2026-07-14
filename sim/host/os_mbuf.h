@@ -96,8 +96,13 @@ struct os_mbuf {
 /**
  * Gets the length of an entire mbuf chain.  The specified mbuf must have a
  * packet header.
+ *
+ * sim: fake mbufs are a single flat buffer created on the stack (no packet
+ * header behind om_data), so the packet length is simply om_len. Creators of
+ * fake mbufs must set om_data + om_len; om_databuf[] capacity is only used by
+ * os_mbuf_append (see os_mbuf.cpp).
  */
-#define OS_MBUF_PKTLEN(__om) (OS_MBUF_PKTHDR(__om)->omp_len)
+#define OS_MBUF_PKTLEN(__om) ((__om)->om_len)
 
 // sim: function from os_mbuf.h
 /*

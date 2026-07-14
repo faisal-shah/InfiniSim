@@ -27,6 +27,7 @@
 
 // get PineTime header
 #include "displayapp/InfiniTimeTheme.h"
+#include "displayapp/LvglGuard.h"
 #include <drivers/Hrs3300.h>
 #include <drivers/Bma421.h>
 
@@ -694,6 +695,7 @@ public:
     debounce('i', 'I', state[SDL_SCANCODE_I], key_handled_i);
     debounce('w', 'W', state[SDL_SCANCODE_W], key_handled_w);
     debounce('e', 'E', state[SDL_SCANCODE_E], key_handled_e);
+    debounce('t', 'T', state[SDL_SCANCODE_T], key_handled_t);
     // screen switcher buttons
     debounce('1', '!' + 1, state[SDL_SCANCODE_1], key_handled_1);
     debounce('2', '!' + 2, state[SDL_SCANCODE_2], key_handled_2);
@@ -804,6 +806,8 @@ public:
       generate_schedule_data(false);
     } else if (key == 'E') {
       generate_schedule_data(true);
+    } else if (key == 't' || key == 'T') {
+      generate_schedule_abandoned_sync();
     } else if (key >= '0' && key <= '9') {
       this->switch_to_screen(key - '0');
     } else if (key >= '!' + 0 && key <= '!' + 9) {
@@ -884,17 +888,91 @@ public:
     systemTask.nimble().weather().OnCommand(&ctxt);
   }
 
-  // Temporary P1 injector: exercises the same staging + commit-via-SystemTask path
-  // the Schedule BLE service will use. Replaced by an os_mbuf injector in P2.
+  // Schedule Service test injectors: encode the exact wire bytes a companion
+  // would write (doc/ScheduleService.md) and deliver them through the real GATT
+  // access callback, fake os_mbuf and all.
+  int schedule_gatt_access(uint8_t op, uint8_t charId, uint8_t* data, uint16_t len, uint16_t capacity = 0) {
+    const ble_uuid128_t charUuid {
+      .u = {.type = BLE_UUID_TYPE_128},
+      .value = {0xd0, 0x42, 0x19, 0x3a, 0x3b, 0x43, 0x23, 0x8e, 0xfe, 0x48, 0xfc, 0x78, charId, 0x00, 0x06, 0x00}};
+    ble_gatt_chr_def chrDef {};
+    chrDef.uuid = &charUuid.u;
+    os_mbuf buffer {};
+    buffer.om_data = data;
+    buffer.om_len = op == BLE_GATT_ACCESS_OP_WRITE_CHR ? len : 0;
+    buffer.om_flags = capacity ? 1 : 0;
+    ble_gatt_access_ctxt ctxt {};
+    ctxt.op = op;
+    ctxt.om = &buffer;
+    ctxt.chr = &chrDef;
+    const int rc = systemTask.nimble().schedule().OnCommand(&ctxt);
+    if (op == BLE_GATT_ACCESS_OP_READ_CHR && rc == 0) {
+      return buffer.om_len; // bytes produced by the read
+    }
+    return rc == 0 ? 0 : -rc;
+  }
+
+  int schedule_write(std::initializer_list<uint8_t> header, const Pinetime::Controllers::ScheduleController::Event* event = nullptr) {
+    uint8_t msg[3 + sizeof(Pinetime::Controllers::ScheduleController::Event)];
+    uint16_t len = 0;
+    for (uint8_t b : header) {
+      msg[len++] = b;
+    }
+    if (event != nullptr) {
+      std::memcpy(&msg[len], event, sizeof(*event));
+      len += sizeof(*event);
+    }
+    return schedule_gatt_access(BLE_GATT_ACCESS_OP_WRITE_CHR, 0x01, msg, len);
+  }
+
+  void print_schedule_digest() {
+    uint8_t out[16] {};
+    const int n = schedule_gatt_access(BLE_GATT_ACCESS_OP_READ_CHR, 0x02, out, 0, sizeof(out));
+    if (n == 7) {
+      uint32_t version;
+      std::memcpy(&version, &out[3], sizeof(version));
+      printf("InfiniSim: schedule digest: proto=%u capacity=%u count=%u version=%u\n", out[0], out[1], out[2], version);
+    } else {
+      printf("InfiniSim: schedule digest read failed (%d)\n", n);
+    }
+  }
+
+  Pinetime::Controllers::ScheduleController::Event make_schedule_event(uint16_t id,
+                                                                       Pinetime::Controllers::ScheduleController::RuleKind kind,
+                                                                       uint8_t hour,
+                                                                       uint8_t minute,
+                                                                       const tm& anchor,
+                                                                       uint8_t param,
+                                                                       const char* title) {
+    Pinetime::Controllers::ScheduleController::Event e {};
+    e.id = id;
+    e.ruleKind = static_cast<uint8_t>(kind);
+    e.hour = hour;
+    e.minute = minute;
+    e.anchorYear = anchor.tm_year + 1900;
+    e.anchorMonth = anchor.tm_mon + 1;
+    e.anchorDay = anchor.tm_mday;
+    e.param = param;
+    e.flags = 0x01; // enabled
+    std::strncpy(e.title, title, sizeof(e.title) - 1);
+    return e;
+  }
+
+  // e: sync a 4-event test set over the wire (incl. two one-shots in the same
+  //    minute, to exercise back-to-back firing). E: sync an empty schedule.
   void generate_schedule_data(bool clear) {
     static uint32_t scheduleVersion = 0;
     scheduleVersion++;
-    auto& schedule = scheduleController;
+    const uint8_t v0 = scheduleVersion & 0xFF;
+    const uint8_t v1 = (scheduleVersion >> 8) & 0xFF;
+    const uint8_t v2 = (scheduleVersion >> 16) & 0xFF;
+    const uint8_t v3 = (scheduleVersion >> 24) & 0xFF;
 
     if (clear) {
-      schedule.BeginStaging(0, scheduleVersion);
-      systemTask.PushMessage(Pinetime::System::Messages::ScheduleSyncReceived);
+      schedule_write({0, 0, 0, v0, v1, v2, v3}); // BeginSync count=0
+      schedule_write({2, 0, 0});                 // CommitSync
       printf("InfiniSim: schedule cleared (version %u)\n", scheduleVersion);
+      print_schedule_digest();
       return;
     }
 
@@ -902,34 +980,34 @@ public:
     const time_t soonT = now + 120;
     tm soon = *std::localtime(&soonT);
 
-    auto makeEvent = [](uint16_t id,
-                        Pinetime::Controllers::ScheduleController::RuleKind kind,
-                        uint8_t hour,
-                        uint8_t minute,
-                        const tm& anchor,
-                        uint8_t param,
-                        const char* title) {
-      Pinetime::Controllers::ScheduleController::Event e {};
-      e.id = id;
-      e.ruleKind = static_cast<uint8_t>(kind);
-      e.hour = hour;
-      e.minute = minute;
-      e.anchorYear = anchor.tm_year + 1900;
-      e.anchorMonth = anchor.tm_mon + 1;
-      e.anchorDay = anchor.tm_mday;
-      e.param = param;
-      e.flags = 0x01; // enabled
-      std::strncpy(e.title, title, sizeof(e.title) - 1);
-      return e;
-    };
-
     using RuleKind = Pinetime::Controllers::ScheduleController::RuleKind;
-    schedule.BeginStaging(3, scheduleVersion);
-    schedule.StageEvent(0, makeEvent(1, RuleKind::OneShot, soon.tm_hour, soon.tm_min, soon, 0, "Test reminder"));
-    schedule.StageEvent(1, makeEvent(2, RuleKind::EveryNDays, 20, 30, soon, 1, "Brush teeth"));
-    schedule.StageEvent(2, makeEvent(3, RuleKind::Weekly, 17, 0, soon, 0x2A, "Quran practice"));
-    systemTask.PushMessage(Pinetime::System::Messages::ScheduleSyncReceived);
-    printf("InfiniSim: schedule injected (version %u, one-shot at %02d:%02d)\n", scheduleVersion, soon.tm_hour, soon.tm_min);
+    const auto e0 = make_schedule_event(1, RuleKind::OneShot, soon.tm_hour, soon.tm_min, soon, 0, "Test reminder");
+    const auto e1 = make_schedule_event(2, RuleKind::OneShot, soon.tm_hour, soon.tm_min, soon, 0, "Second same minute");
+    const auto e2 = make_schedule_event(3, RuleKind::EveryNDays, 20, 30, soon, 1, "Brush teeth");
+    const auto e3 = make_schedule_event(4, RuleKind::Weekly, 17, 0, soon, 0x2A, "Quran practice");
+
+    int rc = 0;
+    rc |= schedule_write({0, 0, 4, v0, v1, v2, v3}); // BeginSync count=4
+    rc |= schedule_write({1, 0, 0}, &e0);
+    rc |= schedule_write({1, 0, 1}, &e1);
+    rc |= schedule_write({1, 0, 2}, &e2);
+    rc |= schedule_write({1, 0, 3}, &e3);
+    rc |= schedule_write({2, 0, 4}); // CommitSync
+    printf("InfiniSim: schedule sync rc=%d (version %u, one-shots at %02d:%02d)\n", rc, scheduleVersion, soon.tm_hour, soon.tm_min);
+    print_schedule_digest();
+  }
+
+  // t: BeginSync + one record, never committed. The active schedule must
+  //    survive untouched and the next real sync must still work.
+  void generate_schedule_abandoned_sync() {
+    const time_t now = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
+    tm t = *std::localtime(&now);
+    const auto orphan =
+      make_schedule_event(99, Pinetime::Controllers::ScheduleController::RuleKind::EveryNDays, t.tm_hour, t.tm_min, t, 1, "Orphan");
+    schedule_write({0, 0, 2, 0xEE, 0xFF, 0, 0}); // BeginSync count=2, version 0xFFEE
+    schedule_write({1, 0, 0}, &orphan);          // one record, no commit
+    printf("InfiniSim: abandoned sync staged (no commit sent)\n");
+    print_schedule_digest();
   }
 
   void generate_weather_data(bool clear) {
@@ -1039,6 +1117,9 @@ public:
 
   // render the current status of the simulated controller
   void refresh_screen() {
+    // Serialize against the DisplayApp task: both this function and the
+    // display task drive LVGL (see sim/displayapp/LvglGuard.h).
+    LVGL_GUARD();
     const Pinetime::Controllers::BrightnessController::Levels level = brightnessController.Level();
     if (level == Pinetime::Controllers::BrightnessController::Levels::Off) {
       if (!screen_off_created) {
@@ -1112,6 +1193,7 @@ private:
   bool key_handled_i = false; // i ... take screenshot, I ... start/stop Gif screen capture
   bool key_handled_w = false; // w ... generate weather data, W ... clear weather data
   bool key_handled_e = false; // e ... inject test schedule, E ... clear schedule
+  bool key_handled_t = false; // t ... begin schedule sync without commit (staging-discard test)
   // numbers from 0 to 9 to switch between screens
   bool key_handled_1 = false;
   bool key_handled_2 = false;
