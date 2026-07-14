@@ -16,6 +16,7 @@
 //   2     Current Time          0x2A2B      write -> DateTimeController::SetTime
 //   3     New Alert             0x2A46      write -> AlertNotificationService::OnAlert
 //   4     Battery Level         0x2A19      read  -> BatteryController percent
+//   5     Schedule Event Read   00060003    write (select index) / read (record)
 //
 // Single client at a time; polled from the SDL main loop (same thread as the
 // keyboard injectors, so calling the GATT handlers directly is safe).
@@ -45,7 +46,7 @@ public:
   void Poll(); // call every main-loop iteration; non-blocking
 
 private:
-  enum class CharId : uint8_t { ScheduleSync = 0, ScheduleDigest = 1, CurrentTime = 2, NewAlert = 3, Battery = 4 };
+  enum class CharId : uint8_t { ScheduleSync = 0, ScheduleDigest = 1, CurrentTime = 2, NewAlert = 3, Battery = 4, EventRead = 5 };
 
   void HandleRequest();
   uint8_t Dispatch(uint8_t charId, uint8_t op, const uint8_t* payload, uint16_t len, uint8_t* out, uint16_t& outLen);

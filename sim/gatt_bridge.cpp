@@ -194,6 +194,20 @@ uint8_t GattBridge::Dispatch(uint8_t charId, uint8_t op, const uint8_t* payload,
       return static_cast<uint8_t>(systemTask.nimble().alertService().OnAlert(&access.ctxt));
     }
 
+    case CharId::EventRead: {
+      if (op == 0) {
+        FakeGattAccess access(BLE_GATT_ACCESS_OP_WRITE_CHR, 0x03, const_cast<uint8_t*>(payload), len);
+        return static_cast<uint8_t>(systemTask.nimble().schedule().OnCommand(&access.ctxt));
+      }
+      FakeGattAccess access(BLE_GATT_ACCESS_OP_READ_CHR, 0x03, out, 0);
+      const int rc = systemTask.nimble().schedule().OnCommand(&access.ctxt);
+      if (rc != 0) {
+        return static_cast<uint8_t>(rc);
+      }
+      outLen = access.buffer.om_len;
+      return 0;
+    }
+
     case CharId::Battery: {
       if (op != 1) {
         return 0xFE;

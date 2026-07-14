@@ -956,6 +956,7 @@ public:
     e.param = param;
     e.flags = 0x01; // enabled
     std::strncpy(e.title, title, sizeof(e.title) - 1);
+    e.lastModified = static_cast<uint32_t>(std::time(nullptr));
     return e;
   }
 
@@ -989,10 +990,10 @@ public:
 
     int rc = 0;
     rc |= schedule_write({0, 0, 4, v0, v1, v2, v3}); // BeginSync count=4
-    rc |= schedule_write({1, 0, 0}, &e0);
-    rc |= schedule_write({1, 0, 1}, &e1);
-    rc |= schedule_write({1, 0, 2}, &e2);
-    rc |= schedule_write({1, 0, 3}, &e3);
+    rc |= schedule_write({1, 1, 0}, &e0);
+    rc |= schedule_write({1, 1, 1}, &e1);
+    rc |= schedule_write({1, 1, 2}, &e2);
+    rc |= schedule_write({1, 1, 3}, &e3);
     rc |= schedule_write({2, 0, 4}); // CommitSync
     printf("InfiniSim: schedule sync rc=%d (version %u, one-shots at %02d:%02d)\n", rc, scheduleVersion, soon.tm_hour, soon.tm_min);
     print_schedule_digest();
@@ -1006,7 +1007,7 @@ public:
     const auto orphan =
       make_schedule_event(99, Pinetime::Controllers::ScheduleController::RuleKind::EveryNDays, t.tm_hour, t.tm_min, t, 1, "Orphan");
     schedule_write({0, 0, 2, 0xEE, 0xFF, 0, 0}); // BeginSync count=2, version 0xFFEE
-    schedule_write({1, 0, 0}, &orphan);          // one record, no commit
+    schedule_write({1, 1, 0}, &orphan);          // one record, no commit
     printf("InfiniSim: abandoned sync staged (no commit sent)\n");
     print_schedule_digest();
   }
