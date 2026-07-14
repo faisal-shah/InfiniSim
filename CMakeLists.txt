@@ -198,6 +198,9 @@ target_sources(infinisim PUBLIC
   ${InfiniTime_DIR}/src/components/alarm/AlarmController.cpp
   ${InfiniTime_DIR}/src/components/schedule/ScheduleController.h
   ${InfiniTime_DIR}/src/components/schedule/ScheduleController.cpp
+  ${InfiniTime_DIR}/src/components/prayer/PrayerRules.h
+  ${InfiniTime_DIR}/src/components/prayer/PrayerController.h
+  ${InfiniTime_DIR}/src/components/prayer/PrayerController.cpp
   ${InfiniTime_DIR}/src/components/ble/BleController.h
   ${InfiniTime_DIR}/src/components/ble/BleController.cpp
   ${InfiniTime_DIR}/src/components/datetime/DateTimeController.h
