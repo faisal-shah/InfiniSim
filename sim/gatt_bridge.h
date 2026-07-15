@@ -18,6 +18,8 @@
 //   4     Battery Level         0x2A19      read  -> BatteryController percent
 //   5     Schedule Event Read   00060003    write (select index) / read (record)
 //   6     Prayer Settings       00070001    write (9-byte blob) / read (blob)
+//   7     Beacon Key            00080001    write (28-byte key) / read (hasKey)
+//   8     Beacon Control        00080002    write (0x01 = enable)
 //
 // Single client at a time; polled from the SDL main loop (same thread as the
 // keyboard injectors, so calling the GATT handlers directly is safe).
@@ -54,7 +56,9 @@ private:
     NewAlert = 3,
     Battery = 4,
     EventRead = 5,
-    PrayerSettings = 6
+    PrayerSettings = 6,
+    BeaconKey = 7,
+    BeaconControl = 8
   };
 
   void HandleRequest();

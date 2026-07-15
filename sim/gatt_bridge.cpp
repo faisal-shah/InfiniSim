@@ -14,6 +14,7 @@
 #include "host/ble_uuid.h"
 #include "components/ble/ScheduleService.h"
 #include "components/ble/PrayerService.h"
+#include "components/ble/BeaconService.h"
 #include "components/ble/AlertNotificationService.h"
 #include "components/battery/BatteryController.h"
 #include "components/datetime/DateTimeController.h"
@@ -231,6 +232,28 @@ uint8_t GattBridge::Dispatch(uint8_t charId, uint8_t op, const uint8_t* payload,
       }
       outLen = access.buffer.om_len;
       return 0;
+    }
+
+    case CharId::BeaconKey: {
+      if (op == 0) {
+        FakeGattAccess access(BLE_GATT_ACCESS_OP_WRITE_CHR, 0x01, const_cast<uint8_t*>(payload), len, 0x08);
+        return static_cast<uint8_t>(systemTask.nimble().beacon().OnCommand(&access.ctxt));
+      }
+      FakeGattAccess access(BLE_GATT_ACCESS_OP_READ_CHR, 0x01, out, 0, 0x08);
+      const int rc = systemTask.nimble().beacon().OnCommand(&access.ctxt);
+      if (rc != 0) {
+        return static_cast<uint8_t>(rc);
+      }
+      outLen = access.buffer.om_len;
+      return 0;
+    }
+
+    case CharId::BeaconControl: {
+      if (op != 0) {
+        return 0xFE;
+      }
+      FakeGattAccess access(BLE_GATT_ACCESS_OP_WRITE_CHR, 0x02, const_cast<uint8_t*>(payload), len, 0x08);
+      return static_cast<uint8_t>(systemTask.nimble().beacon().OnCommand(&access.ctxt));
     }
 
     case CharId::Battery: {

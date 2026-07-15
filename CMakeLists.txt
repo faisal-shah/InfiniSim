@@ -201,6 +201,9 @@ target_sources(infinisim PUBLIC
   ${InfiniTime_DIR}/src/components/prayer/PrayerRules.h
   ${InfiniTime_DIR}/src/components/prayer/PrayerController.h
   ${InfiniTime_DIR}/src/components/prayer/PrayerController.cpp
+  ${InfiniTime_DIR}/src/components/beacon/BeaconRules.h
+  ${InfiniTime_DIR}/src/components/beacon/BeaconController.h
+  ${InfiniTime_DIR}/src/components/beacon/BeaconController.cpp
   ${InfiniTime_DIR}/src/components/ble/BleController.h
   ${InfiniTime_DIR}/src/components/ble/BleController.cpp
   ${InfiniTime_DIR}/src/components/datetime/DateTimeController.h
@@ -223,6 +226,8 @@ target_sources(infinisim PUBLIC
   ${InfiniTime_DIR}/src/components/ble/ScheduleService.cpp
   ${InfiniTime_DIR}/src/components/ble/PrayerService.h
   ${InfiniTime_DIR}/src/components/ble/PrayerService.cpp
+  ${InfiniTime_DIR}/src/components/ble/BeaconService.h
+  ${InfiniTime_DIR}/src/components/ble/BeaconService.cpp
   ${InfiniTime_DIR}/src/components/fs/FS.h
   ${InfiniTime_DIR}/src/components/fs/FS.cpp
   ${InfiniTime_DIR}/src/components/motion/MotionController.h

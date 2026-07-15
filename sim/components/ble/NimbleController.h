@@ -23,6 +23,7 @@
 #include "components/ble/SimpleWeatherService.h"
 #include "components/ble/ScheduleService.h"
 #include "components/ble/PrayerService.h"
+#include "components/ble/BeaconService.h"
 #include "components/fs/FS.h"
 
 // #include "components/ble/FSService.h"
@@ -42,6 +43,7 @@ namespace Pinetime {
     class DateTime;
     class ScheduleController;
     class PrayerController;
+    class BeaconController;
     class FS;
     class HeartRateController;
     class MotionController;
@@ -60,7 +62,8 @@ namespace Pinetime {
                        Controllers::MotionController& motionController,
                        Pinetime::Controllers::FS& fs,
                        Controllers::ScheduleController& scheduleController,
-                       Controllers::PrayerController& prayerController);
+                       Controllers::PrayerController& prayerController,
+                       Controllers::BeaconController& beaconController);
       void Init();
       void StartAdvertising();
       //      int OnGAPEvent(ble_gap_event* event);
@@ -98,6 +101,10 @@ namespace Pinetime {
 
       Pinetime::Controllers::PrayerService& prayer() {
         return prayerService;
+      }
+
+      Pinetime::Controllers::BeaconService& beacon() {
+        return beaconService;
       };
 
       uint16_t connHandle();
@@ -132,6 +139,7 @@ namespace Pinetime {
       SimpleWeatherService weatherService;
       ScheduleService scheduleService;
       PrayerService prayerService;
+      BeaconService beaconService;
       NavigationService navService;
       //      BatteryInformationService batteryInformationService;
       //      ImmediateAlertService immediateAlertService;
