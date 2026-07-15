@@ -117,6 +117,15 @@ namespace Pinetime {
       void EnableRadio();
       void DisableRadio();
 
+      // Beacon mode: no radio in the sim, so this just tracks intent so
+      // IsBeaconing() reflects the toggle for UI/tests.
+      void RequestBeaconMode(bool enable) {
+        beaconActive = enable;
+      }
+      bool IsBeaconing() const {
+        return beaconActive;
+      }
+
     private:
       //      void PersistBond(struct ble_gap_conn_desc& desc);
       //      void RestoreBond();
@@ -140,6 +149,7 @@ namespace Pinetime {
       ScheduleService scheduleService;
       PrayerService prayerService;
       BeaconService beaconService;
+      bool beaconActive = false;
       NavigationService navService;
       //      BatteryInformationService batteryInformationService;
       //      ImmediateAlertService immediateAlertService;
