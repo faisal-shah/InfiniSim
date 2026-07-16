@@ -227,6 +227,7 @@ target_sources(infinisim PUBLIC
   ${InfiniTime_DIR}/src/components/ble/ScheduleService.cpp
   ${InfiniTime_DIR}/src/components/ble/PrayerService.h
   ${InfiniTime_DIR}/src/components/ble/PrayerService.cpp
+  ${InfiniTime_DIR}/src/components/ble/MultiAlarmService.cpp
   ${InfiniTime_DIR}/src/components/ble/BeaconService.h
   ${InfiniTime_DIR}/src/components/ble/BeaconService.cpp
   ${InfiniTime_DIR}/src/components/fs/FS.h

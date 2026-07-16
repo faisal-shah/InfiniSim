@@ -33,6 +33,7 @@ NimbleController::NimbleController(Pinetime::System::SystemTask& systemTask,
                                    Controllers::FS& fs,
                                    Controllers::ScheduleController& scheduleController,
                                    Controllers::PrayerController& prayerController,
+                                   Controllers::MultiAlarmController& multiAlarmController,
                                    Controllers::BeaconController& beaconController)
   : systemTask {systemTask},
     bleController {bleController},
@@ -51,6 +52,7 @@ NimbleController::NimbleController(Pinetime::System::SystemTask& systemTask,
     scheduleService {systemTask, scheduleController},
     prayerService {systemTask, prayerController},
     beaconService {systemTask, beaconController},
+    multiAlarmService {systemTask, multiAlarmController},
     //    batteryInformationService {batteryController},
     //    immediateAlertService {systemTask, notificationManager},
     //    heartRateService {systemTask, heartRateController},
@@ -99,6 +101,7 @@ void NimbleController::Init() {
   scheduleService.Init();
   prayerService.Init();
   beaconService.Init();
+  multiAlarmService.Init();
   navService.Init();
   //  anService.Init();
   //  dfuService.Init();

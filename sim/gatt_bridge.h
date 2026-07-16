@@ -58,7 +58,8 @@ private:
     EventRead = 5,
     PrayerSettings = 6,
     BeaconKey = 7,
-    BeaconControl = 8
+    BeaconControl = 8,
+    MultiAlarm = 9
   };
 
   void HandleRequest();
