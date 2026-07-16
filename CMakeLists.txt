@@ -204,6 +204,7 @@ target_sources(infinisim PUBLIC
   ${InfiniTime_DIR}/src/components/beacon/BeaconRules.h
   ${InfiniTime_DIR}/src/components/beacon/BeaconController.h
   ${InfiniTime_DIR}/src/components/beacon/BeaconController.cpp
+  ${InfiniTime_DIR}/src/components/alertqueue/AlertQueue.cpp
   ${InfiniTime_DIR}/src/components/ble/BleController.h
   ${InfiniTime_DIR}/src/components/ble/BleController.cpp
   ${InfiniTime_DIR}/src/components/datetime/DateTimeController.h
