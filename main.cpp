@@ -1280,8 +1280,15 @@ int main(int argc, char** argv) {
   Framework fw(fw_status_window_visible, 240, 240);
 
   GattBridge gattBridge(systemTask, dateTimeController, batteryController);
-  if (gatt_bridge_port != 0 && !gattBridge.Start(static_cast<uint16_t>(gatt_bridge_port))) {
-    return 1;
+  if (gatt_bridge_port != 0) {
+    // The GATT bridge is a dev/test-only link; enable OTA (DFU + filesystem) so
+    // the harness can exercise firmware/resource updates without navigating the
+    // watch Settings. On real hardware this defaults Disabled and the user
+    // enables it in Settings (the companion detects the disabled gate).
+    settingsController.SetDfuAndFsMode(Pinetime::Controllers::Settings::DfuAndFsMode::Enabled);
+    if (!gattBridge.Start(static_cast<uint16_t>(gatt_bridge_port))) {
+      return 1;
+    }
   }
 
   while (1) {

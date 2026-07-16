@@ -230,6 +230,9 @@ target_sources(infinisim PUBLIC
   ${InfiniTime_DIR}/src/components/ble/MultiAlarmService.cpp
   ${InfiniTime_DIR}/src/components/ble/BeaconService.h
   ${InfiniTime_DIR}/src/components/ble/BeaconService.cpp
+  ${InfiniTime_DIR}/src/components/ble/DfuService.cpp
+  ${InfiniTime_DIR}/src/components/ble/FSService.cpp
+  sim/notify_queue.cpp
   ${InfiniTime_DIR}/src/components/fs/FS.h
   ${InfiniTime_DIR}/src/components/fs/FS.cpp
   ${InfiniTime_DIR}/src/components/motion/MotionController.h

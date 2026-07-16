@@ -41,7 +41,8 @@ NimbleController::NimbleController(Pinetime::System::SystemTask& systemTask,
     notificationManager {notificationManager},
     spiNorFlash {spiNorFlash},
     fs {fs},
-    //    dfuService {systemTask, bleController, spiNorFlash},
+    dfuService {systemTask, bleController, spiNorFlash},
+    fsService {systemTask, fs},
 
     //    currentTimeClient {dateTimeController},
     anService {systemTask, notificationManager},
@@ -104,12 +105,12 @@ void NimbleController::Init() {
   multiAlarmService.Init();
   navService.Init();
   //  anService.Init();
-  //  dfuService.Init();
+  dfuService.Init();
   //  batteryInformationService.Init();
   //  immediateAlertService.Init();
   //  heartRateService.Init();
   //  motionService.Init();
-  //  fsService.Init();
+  fsService.Init();
   //
   //  int rc;
   //  rc = ble_hs_util_ensure_addr(0);

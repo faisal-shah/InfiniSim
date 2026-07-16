@@ -18,9 +18,24 @@
  */
 
 #include "host/ble_hs_mbuf.h"
+#include "host/os_mbuf.h"
+#include <cstdlib>
+#include <cstring>
 
-
+// Allocate a real single-buffer mbuf holding a copy of `buf` so the firmware's
+// notification path (DfuService / FSService -> ble_gattc_notify_custom) carries
+// actual bytes in the sim. ble_gattc_notify_custom frees it after capturing.
 struct os_mbuf *ble_hs_mbuf_from_flat(const void *buf, uint16_t len)
 {
-    return (os_mbuf *)nullptr;
+    auto *om = static_cast<os_mbuf *>(std::malloc(sizeof(os_mbuf) + len));
+    if (om == nullptr) {
+        return nullptr;
+    }
+    std::memset(om, 0, sizeof(os_mbuf));
+    om->om_data = om->om_databuf;
+    om->om_len = len;
+    if (len > 0 && buf != nullptr) {
+        std::memcpy(om->om_databuf, buf, len);
+    }
+    return om;
 }

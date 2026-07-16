@@ -16,10 +16,14 @@
 #include "components/ble/PrayerService.h"
 #include "components/ble/BeaconService.h"
 #include "components/ble/MultiAlarmService.h"
+#include "components/ble/DfuService.h"
+#include "components/ble/FSService.h"
 #include "components/ble/AlertNotificationService.h"
 #include "components/battery/BatteryController.h"
 #include "components/datetime/DateTimeController.h"
 #include "systemtask/SystemTask.h"
+#include "notify_queue.h"
+#include "Version.h"
 
 namespace {
   constexpr size_t headerSize = 4; // charId u8, op u8, len u16
@@ -90,6 +94,7 @@ void GattBridge::CloseClient() {
     close(clientFd);
     clientFd = -1;
     rxLen = 0;
+    SimNotify::Clear(); // drop any pending notifications from the closed link
     // A dropped companion connection aborts any open sync transaction, exactly
     // like a BLE disconnect.
     systemTask.nimble().schedule().OnDisconnect();
@@ -125,12 +130,40 @@ void GattBridge::Poll() {
     if (n > 0) {
       rxLen += n;
       HandleRequest();
+      DrainNotifications();
       continue;
     }
     if (n == 0) {
       CloseClient(); // orderly shutdown
+      return;
     }
-    return; // EAGAIN or closed
+    // EAGAIN: no request pending, but firmware may have queued async
+    // notifications (DfuService AsyncSend fires on the SDL timer thread).
+    DrainNotifications();
+    return;
+  }
+}
+
+void GattBridge::DrainNotifications() {
+  if (clientFd < 0) {
+    return;
+  }
+  uint8_t charId;
+  std::vector<uint8_t> bytes;
+  while (SimNotify::Pop(charId, bytes)) {
+    SendNotification(charId, bytes.data(), static_cast<uint16_t>(bytes.size()));
+  }
+}
+
+void GattBridge::SendNotification(uint8_t charId, const uint8_t* payload, uint16_t len) {
+  // Unsolicited notification frame: [0xF0, charId, lenLo, lenHi, ...payload].
+  uint8_t header[4];
+  header[0] = 0xF0;
+  header[1] = charId;
+  std::memcpy(&header[2], &len, sizeof(len));
+  if (send(clientFd, header, sizeof(header), MSG_NOSIGNAL) < 0 ||
+      (len > 0 && send(clientFd, payload, len, MSG_NOSIGNAL) < 0)) {
+    CloseClient();
   }
 }
 
@@ -149,8 +182,13 @@ void GattBridge::HandleRequest() {
 
     uint8_t out[64];
     uint16_t outLen = 0;
-    const uint8_t status = Dispatch(rxBuffer[0], rxBuffer[1], &rxBuffer[4], payloadLen, out, outLen);
-    SendResponse(status, out, outLen);
+    const uint8_t op = rxBuffer[1];
+    const uint8_t status = Dispatch(rxBuffer[0], op, &rxBuffer[4], payloadLen, out, outLen);
+    // op 2 = write-without-response: process but send no response frame (the DFU
+    // packet char is write-no-rsp; its acks arrive as separate notifications).
+    if (op != 2) {
+      SendResponse(status, out, outLen);
+    }
 
     std::memmove(rxBuffer, rxBuffer + total, rxLen - total);
     rxLen -= total;
@@ -277,6 +315,43 @@ uint8_t GattBridge::Dispatch(uint8_t charId, uint8_t op, const uint8_t* payload,
       }
       out[0] = batteryController.PercentRemaining();
       outLen = 1;
+      return 0;
+    }
+
+    case CharId::DfuControl: {
+      // Control-point write (op 0). DfuService routes by attribute handle, not
+      // UUID, so the FakeGattAccess UUID is irrelevant — pass 0x1531. Its
+      // notifications land on the control point, tagged as DfuControl.
+      SimNotify::SetActiveCharId(static_cast<uint8_t>(CharId::DfuControl));
+      FakeGattAccess access(BLE_GATT_ACCESS_OP_WRITE_CHR, 0x00, const_cast<uint8_t*>(payload), len);
+      return static_cast<uint8_t>(systemTask.nimble().dfu().OnServiceData(0, 0x1531, &access.ctxt));
+    }
+
+    case CharId::DfuPacket: {
+      // Packet-char write (op 2 = write-no-response): firmware sizes / init
+      // packet / 20-byte firmware chunks. Acks arrive as control-point
+      // notifications, so tag as DfuControl.
+      SimNotify::SetActiveCharId(static_cast<uint8_t>(CharId::DfuControl));
+      FakeGattAccess access(BLE_GATT_ACCESS_OP_WRITE_CHR, 0x00, const_cast<uint8_t*>(payload), len);
+      return static_cast<uint8_t>(systemTask.nimble().dfu().OnServiceData(0, 0x1532, &access.ctxt));
+    }
+
+    case CharId::FsTransfer: {
+      // Adafruit BLE filesystem transfer char (0x0200). Routes by handle;
+      // notifications tag as FsTransfer.
+      SimNotify::SetActiveCharId(static_cast<uint8_t>(CharId::FsTransfer));
+      FakeGattAccess access(BLE_GATT_ACCESS_OP_WRITE_CHR, 0x00, const_cast<uint8_t*>(payload), len);
+      return static_cast<uint8_t>(systemTask.nimble().fileSystem().OnFSServiceRequested(0, 0x0200, &access.ctxt));
+    }
+
+    case CharId::FirmwareRevision: {
+      if (op != 1) {
+        return 0xFE;
+      }
+      const char* v = Pinetime::Version::VersionString();
+      const size_t n = std::strlen(v);
+      std::memcpy(out, v, n);
+      outLen = static_cast<uint16_t>(n);
       return 0;
     }
   }

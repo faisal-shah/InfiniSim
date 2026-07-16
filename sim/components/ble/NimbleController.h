@@ -13,7 +13,8 @@
 // #include "components/ble/CurrentTimeClient.h"
 // #include "components/ble/CurrentTimeService.h"
 // #include "components/ble/DeviceInformationService.h"
-// #include "components/ble/DfuService.h"
+#include "components/ble/DfuService.h"
+#include "components/ble/FSService.h"
 // #include "components/ble/HeartRateService.h"
 // #include "components/ble/ImmediateAlertService.h"
 #include "components/ble/MusicService.h"
@@ -114,6 +115,14 @@ namespace Pinetime {
         return beaconService;
       };
 
+      Pinetime::Controllers::DfuService& dfu() {
+        return dfuService;
+      }
+
+      Pinetime::Controllers::FSService& fileSystem() {
+        return fsService;
+      }
+
       uint16_t connHandle();
       void NotifyBatteryLevel(uint8_t level);
 
@@ -144,7 +153,8 @@ namespace Pinetime {
       Pinetime::Controllers::NotificationManager& notificationManager;
       Pinetime::Drivers::SpiNorFlash& spiNorFlash;
       Pinetime::Controllers::FS& fs;
-      //      Pinetime::Controllers::DfuService dfuService;
+      DfuService dfuService;
+      FSService fsService;
 
       //      DeviceInformationService deviceInformationService;
       //      CurrentTimeClient currentTimeClient;

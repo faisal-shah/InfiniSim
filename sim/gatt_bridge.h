@@ -59,12 +59,18 @@ private:
     PrayerSettings = 6,
     BeaconKey = 7,
     BeaconControl = 8,
-    MultiAlarm = 9
+    MultiAlarm = 9,
+    DfuControl = 10, // 0x1531 write + notify (DFU control point)
+    DfuPacket = 11, // 0x1532 write-without-response (DFU firmware/init/size data)
+    FsTransfer = 12, // adaf0200 write + notify (BLE filesystem)
+    FirmwareRevision = 13, // 0x2A26 read (firmware version string)
   };
 
   void HandleRequest();
   uint8_t Dispatch(uint8_t charId, uint8_t op, const uint8_t* payload, uint16_t len, uint8_t* out, uint16_t& outLen);
   void SendResponse(uint8_t status, const uint8_t* payload, uint16_t len);
+  void SendNotification(uint8_t charId, const uint8_t* payload, uint16_t len);
+  void DrainNotifications();
   void CloseClient();
 
   Pinetime::System::SystemTask& systemTask;
