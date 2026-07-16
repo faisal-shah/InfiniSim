@@ -194,8 +194,8 @@ target_sources(infinisim PUBLIC
   ${InfiniTime_DIR}/src/buttonhandler/ButtonHandler.cpp
   ${InfiniTime_DIR}/src/components/stopwatch/StopWatchController.h
   ${InfiniTime_DIR}/src/components/stopwatch/StopWatchController.cpp
-  ${InfiniTime_DIR}/src/components/alarm/AlarmController.h
-  ${InfiniTime_DIR}/src/components/alarm/AlarmController.cpp
+  ${InfiniTime_DIR}/src/components/multialarm/MultiAlarmController.h
+  ${InfiniTime_DIR}/src/components/multialarm/MultiAlarmController.cpp
   ${InfiniTime_DIR}/src/components/schedule/ScheduleController.h
   ${InfiniTime_DIR}/src/components/schedule/ScheduleController.cpp
   ${InfiniTime_DIR}/src/components/prayer/PrayerRules.h
@@ -333,12 +333,6 @@ if(BUILD_RESOURCES)
   endif()
 endif()
 
-# check if AlarmController.h needs FileSystem member
-file(STRINGS "${InfiniTime_DIR}/src/components/alarm/AlarmController.h" alarmControllerFileSystemEntries REGEX "Controllers::FS")
-if(NOT alarmControllerFileSystemEntries STREQUAL "")
-  message(STATUS "detected AlarmController.h using 'Controllers::FS'")
-  set_source_files_properties(main.cpp PROPERTIES COMPILE_DEFINITIONS ALARMCONTROLLER_NEEDS_FS)
-endif()
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 

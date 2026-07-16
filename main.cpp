@@ -366,11 +366,7 @@ Pinetime::Controllers::TimerController timerController;
 #endif
 
 Pinetime::Controllers::StopWatchController stopWatchController {};
-#if defined(ALARMCONTROLLER_NEEDS_FS)
-Pinetime::Controllers::AlarmController alarmController {dateTimeController, fs};
-#else
-Pinetime::Controllers::AlarmController alarmController {dateTimeController};
-#endif
+Pinetime::Controllers::MultiAlarmController multiAlarmController {dateTimeController, fs};
 Pinetime::Controllers::ScheduleController scheduleController {dateTimeController, fs};
 Pinetime::Controllers::PrayerController prayerController {dateTimeController, fs};
 Pinetime::Controllers::BeaconController beaconController {fs};
@@ -394,7 +390,7 @@ Pinetime::Applications::DisplayApp displayApp(lcd,
                                               timerController,
 #endif
                                               stopWatchController,
-                                              alarmController,
+                                              multiAlarmController,
                                               scheduleController,
                                               prayerController,
                                               beaconController,
@@ -415,7 +411,7 @@ Pinetime::System::SystemTask systemTask(spi,
                                         timerController,
 #endif
                                         stopWatchController,
-                                        alarmController,
+                                        multiAlarmController,
                                         scheduleController,
                                         prayerController,
                                         beaconController,
