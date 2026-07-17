@@ -25,9 +25,16 @@
 // Allocate a real single-buffer mbuf holding a copy of `buf` so the firmware's
 // notification path (DfuService / FSService -> ble_gattc_notify_custom) carries
 // actual bytes in the sim. ble_gattc_notify_custom frees it after capturing.
+//
+// FSService's LISTDIR builds a response by os_mbuf_append()-ing the entry name
+// AFTER this initial flat copy, so we over-allocate the data buffer by the
+// filesystem's max path length. Without this slack the append overruns the
+// allocation and corrupts the heap (munmap_chunk: invalid pointer).
+static constexpr uint16_t kAppendSlack = 256; // FSService maxpathlen
+
 struct os_mbuf *ble_hs_mbuf_from_flat(const void *buf, uint16_t len)
 {
-    auto *om = static_cast<os_mbuf *>(std::malloc(sizeof(os_mbuf) + len));
+    auto *om = static_cast<os_mbuf *>(std::malloc(sizeof(os_mbuf) + len + kAppendSlack));
     if (om == nullptr) {
         return nullptr;
     }
