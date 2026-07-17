@@ -1279,7 +1279,7 @@ int main(int argc, char** argv) {
   // initialize the core of our Simulator
   Framework fw(fw_status_window_visible, 240, 240);
 
-  GattBridge gattBridge(systemTask, dateTimeController, batteryController);
+  GattBridge gattBridge(systemTask, dateTimeController, batteryController, motionController);
   if (gatt_bridge_port != 0) {
     // The GATT bridge is a dev/test-only link; enable OTA (DFU + filesystem) so
     // the harness can exercise firmware/resource updates without navigating the

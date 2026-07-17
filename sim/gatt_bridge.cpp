@@ -21,6 +21,7 @@
 #include "components/ble/AlertNotificationService.h"
 #include "components/battery/BatteryController.h"
 #include "components/datetime/DateTimeController.h"
+#include "components/motion/MotionController.h"
 #include "systemtask/SystemTask.h"
 #include "notify_queue.h"
 #include "Version.h"
@@ -50,8 +51,12 @@ namespace {
 
 GattBridge::GattBridge(Pinetime::System::SystemTask& systemTask,
                        Pinetime::Controllers::DateTime& dateTimeController,
-                       Pinetime::Controllers::Battery& batteryController)
-  : systemTask {systemTask}, dateTimeController {dateTimeController}, batteryController {batteryController} {
+                       Pinetime::Controllers::Battery& batteryController,
+                       Pinetime::Controllers::MotionController& motionController)
+  : systemTask {systemTask},
+    dateTimeController {dateTimeController},
+    batteryController {batteryController},
+    motionController {motionController} {
 }
 
 GattBridge::~GattBridge() {
@@ -325,6 +330,20 @@ uint8_t GattBridge::Dispatch(uint8_t charId, uint8_t op, const uint8_t* payload,
       }
       out[0] = batteryController.PercentRemaining();
       outLen = 1;
+      return 0;
+    }
+
+    case CharId::StepCount: {
+      // MotionService step-count read: today's cumulative steps as uint32 LE.
+      if (op != 1) {
+        return 0xFE;
+      }
+      const uint32_t steps = motionController.NbSteps();
+      out[0] = steps & 0xFF;
+      out[1] = (steps >> 8) & 0xFF;
+      out[2] = (steps >> 16) & 0xFF;
+      out[3] = (steps >> 24) & 0xFF;
+      outLen = 4;
       return 0;
     }
 

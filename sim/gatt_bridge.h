@@ -31,6 +31,7 @@ namespace Pinetime {
   namespace Controllers {
     class DateTime;
     class Battery;
+    class MotionController;
   }
 
   namespace System {
@@ -42,7 +43,8 @@ class GattBridge {
 public:
   GattBridge(Pinetime::System::SystemTask& systemTask,
              Pinetime::Controllers::DateTime& dateTimeController,
-             Pinetime::Controllers::Battery& batteryController);
+             Pinetime::Controllers::Battery& batteryController,
+             Pinetime::Controllers::MotionController& motionController);
   ~GattBridge();
 
   bool Start(uint16_t port);
@@ -78,6 +80,7 @@ private:
   Pinetime::System::SystemTask& systemTask;
   Pinetime::Controllers::DateTime& dateTimeController;
   Pinetime::Controllers::Battery& batteryController;
+  Pinetime::Controllers::MotionController& motionController;
 
   int listenFd = -1;
   int clientFd = -1;
