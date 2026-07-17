@@ -347,6 +347,20 @@ uint8_t GattBridge::Dispatch(uint8_t charId, uint8_t op, const uint8_t* payload,
       return 0;
     }
 
+    case CharId::StepCountYesterday: {
+      // MotionService yesterday-steps read: uint32 LE.
+      if (op != 1) {
+        return 0xFE;
+      }
+      const uint32_t steps = motionController.NbSteps(Pinetime::Controllers::MotionController::Days::Yesterday);
+      out[0] = steps & 0xFF;
+      out[1] = (steps >> 8) & 0xFF;
+      out[2] = (steps >> 16) & 0xFF;
+      out[3] = (steps >> 24) & 0xFF;
+      outLen = 4;
+      return 0;
+    }
+
     case CharId::DfuControl: {
       // Control-point write (op 0). DfuService routes by attribute handle, not
       // UUID, so the FakeGattAccess UUID is irrelevant — pass 0x1531. Its

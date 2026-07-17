@@ -68,6 +68,7 @@ private:
     FirmwareRevision = 13, // 0x2A26 read (firmware version string)
     Weather = 14, // 00050001 write (SimpleWeatherService: current + forecast)
     StepCount = 15, // 00030001 read (MotionService: today's cumulative steps)
+    StepCountYesterday = 16, // 00030003 read (MotionService: yesterday's total)
   };
 
   void HandleRequest();
