@@ -245,6 +245,16 @@ uint8_t GattBridge::Dispatch(uint8_t charId, uint8_t op, const uint8_t* payload,
       return static_cast<uint8_t>(systemTask.nimble().alertService().OnAlert(&access.ctxt));
     }
 
+    case CharId::Weather: {
+      // SimpleWeatherService write: current-weather or forecast message. OnCommand
+      // reads only ctxt->om->om_data, so the fake access UUID/handle is irrelevant.
+      if (op != 0) {
+        return 0xFE;
+      }
+      FakeGattAccess access(BLE_GATT_ACCESS_OP_WRITE_CHR, 0x00, const_cast<uint8_t*>(payload), len);
+      return static_cast<uint8_t>(systemTask.nimble().weather().OnCommand(&access.ctxt));
+    }
+
     case CharId::EventRead: {
       if (op == 0) {
         FakeGattAccess access(BLE_GATT_ACCESS_OP_WRITE_CHR, 0x03, const_cast<uint8_t*>(payload), len);

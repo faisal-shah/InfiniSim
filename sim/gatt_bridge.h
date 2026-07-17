@@ -64,6 +64,8 @@ private:
     DfuPacket = 11, // 0x1532 write-without-response (DFU firmware/init/size data)
     FsTransfer = 12, // adaf0200 write + notify (BLE filesystem)
     FirmwareRevision = 13, // 0x2A26 read (firmware version string)
+    Weather = 14, // 00050001 write (SimpleWeatherService: current + forecast)
+    StepCount = 15, // 00030001 read (MotionService: today's cumulative steps)
   };
 
   void HandleRequest();
