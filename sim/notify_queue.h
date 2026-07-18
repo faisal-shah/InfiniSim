@@ -13,13 +13,17 @@
 namespace SimNotify {
   // Called by the bridge before dispatching a DFU/FS write, so notifications the
   // firmware emits (sync or via the 1 s AsyncSend timer) are tagged correctly.
+  // Spontaneous notifications (music/call events) are instead identified by the
+  // attribute handle the firmware passed to ble_gattc_notify_custom.
   void SetActiveCharId(uint8_t charId);
 
-  // Called by the sim's ble_gattc_notify_custom stub with the notification bytes.
-  void Push(const uint8_t* data, uint16_t len);
+  // Called by the sim's ble_gattc_notify_custom stub with the notification bytes
+  // and the attribute handle they were sent on.
+  void Push(uint16_t attHandle, const uint8_t* data, uint16_t len);
 
   // Drained by the bridge's poll loop; returns false when the queue is empty.
-  bool Pop(uint8_t& charId, std::vector<uint8_t>& bytes);
+  // fallbackCharId is the activeCharId captured at push time (DFU/FS flows).
+  bool Pop(uint16_t& attHandle, uint8_t& fallbackCharId, std::vector<uint8_t>& bytes);
 
   // Clear on client disconnect.
   void Clear();

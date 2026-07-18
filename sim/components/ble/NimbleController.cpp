@@ -379,6 +379,14 @@ void NimbleController::StartDiscovery() {
 }
 
 uint16_t NimbleController::connHandle() {
+  // The sim has no real GAP connection, so connectionHandle stays NONE and every
+  // guarded notifier (MusicService::event, ANS call events, ...) would silently
+  // drop. Report a fake valid handle while "connected" (the GATT bridge drives
+  // bleController.Connect/Disconnect on TCP client attach; the 'b' hotkey also
+  // toggles it) so those notifications flow into the SimNotify queue.
+  if (bleController.IsConnected()) {
+    return 1;
+  }
   return connectionHandle;
 }
 

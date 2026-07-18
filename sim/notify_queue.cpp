@@ -5,7 +5,8 @@
 
 namespace {
   struct Entry {
-    uint8_t charId;
+    uint16_t attHandle;
+    uint8_t fallbackCharId;
     std::vector<uint8_t> bytes;
   };
   std::mutex mtx;
@@ -19,17 +20,18 @@ namespace SimNotify {
     activeCharId = charId;
   }
 
-  void Push(const uint8_t* data, uint16_t len) {
+  void Push(uint16_t attHandle, const uint8_t* data, uint16_t len) {
     std::lock_guard<std::mutex> lock(mtx);
-    queue.push_back({activeCharId, std::vector<uint8_t>(data, data + len)});
+    queue.push_back({attHandle, activeCharId, std::vector<uint8_t>(data, data + len)});
   }
 
-  bool Pop(uint8_t& charId, std::vector<uint8_t>& bytes) {
+  bool Pop(uint16_t& attHandle, uint8_t& fallbackCharId, std::vector<uint8_t>& bytes) {
     std::lock_guard<std::mutex> lock(mtx);
     if (queue.empty()) {
       return false;
     }
-    charId = queue.front().charId;
+    attHandle = queue.front().attHandle;
+    fallbackCharId = queue.front().fallbackCharId;
     bytes = std::move(queue.front().bytes);
     queue.pop_front();
     return true;

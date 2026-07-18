@@ -32,6 +32,7 @@ namespace Pinetime {
     class DateTime;
     class Battery;
     class MotionController;
+    class Ble;
   }
 
   namespace System {
@@ -44,7 +45,8 @@ public:
   GattBridge(Pinetime::System::SystemTask& systemTask,
              Pinetime::Controllers::DateTime& dateTimeController,
              Pinetime::Controllers::Battery& batteryController,
-             Pinetime::Controllers::MotionController& motionController);
+             Pinetime::Controllers::MotionController& motionController,
+             Pinetime::Controllers::Ble& bleController);
   ~GattBridge();
 
   bool Start(uint16_t port);
@@ -69,6 +71,21 @@ private:
     Weather = 14, // 00050001 write (SimpleWeatherService: current + forecast)
     StepCount = 15, // 00030001 read (MotionService: today's cumulative steps)
     StepCountYesterday = 16, // 00030003 read (MotionService: yesterday's total)
+    // MusicService writes (000000XX chars; firmware char byte = 0x02 + (id - 17)).
+    MusicStatus = 17, // 00000002 write (1B playing)
+    MusicArtist = 18, // 00000003 write (UTF-8)
+    MusicTrack = 19, // 00000004 write (UTF-8)
+    MusicAlbum = 20, // 00000005 write (UTF-8)
+    MusicPosition = 21, // 00000006 write (u32 BE seconds)
+    MusicTotalLength = 22, // 00000007 write (u32 BE seconds)
+    MusicTrackNumber = 23, // 00000008 write (u32 BE)
+    MusicTrackTotal = 24, // 00000009 write (u32 BE)
+    MusicPlaybackSpeed = 25, // 0000000a write (u32 BE, speed x100)
+    MusicRepeat = 26, // 0000000b write (1B)
+    MusicShuffle = 27, // 0000000c write (1B)
+    // Notify-only sources (watch -> phone), tagged by attribute handle.
+    MusicEvent = 28, // 00000001 notify (1B event: open/play/pause/next/prev/vol)
+    CallEvent = 29, // 00020001 notify (1B: 0=reject 1=accept 2=mute)
   };
 
   void HandleRequest();
@@ -82,6 +99,7 @@ private:
   Pinetime::Controllers::DateTime& dateTimeController;
   Pinetime::Controllers::Battery& batteryController;
   Pinetime::Controllers::MotionController& motionController;
+  Pinetime::Controllers::Ble& bleController;
 
   int listenFd = -1;
   int clientFd = -1;

@@ -29,6 +29,12 @@ else()
 endif()
 set(CMAKE_C_STANDARD 11)#C11
 
+# Match ARM char semantics: on the watch (AAPCS) plain `char` is UNSIGNED, and
+# firmware code relies on it (e.g. MusicService parses big-endian ints via
+# char* — byte 0xF0 must read as 240, not -16). x86 defaults to signed char,
+# which made shared firmware code behave differently in the sim.
+add_compile_options(-funsigned-char)
+
 # copy lv_conf.h from InfiniTime project and do little modifications
 file(READ "${InfiniTime_DIR}/src/libs/lv_conf.h" lv_conf_main)
 # set '#define LV_TICK_CUSTOM     0'

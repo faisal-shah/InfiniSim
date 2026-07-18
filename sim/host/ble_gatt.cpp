@@ -28,10 +28,12 @@ int ble_gattc_notify_custom(uint16_t conn_handle, uint16_t att_handle,
 {
     // Route the firmware's notification payload to the GATT bridge instead of
     // the (stubbed) NimBLE notify path, then free the mbuf (on hardware NimBLE
-    // consumes it). See sim/notify_queue.h.
+    // consumes it). The attribute handle rides along so the bridge can tag
+    // spontaneous notifications (music/call events) by source; DFU/FS keep the
+    // legacy activeCharId tag as fallback. See sim/notify_queue.h.
     if (om != nullptr) {
         if (om->om_data != nullptr) {
-            SimNotify::Push(om->om_data, om->om_len);
+            SimNotify::Push(att_handle, om->om_data, om->om_len);
         }
         std::free(om);
     }
@@ -39,15 +41,34 @@ int ble_gattc_notify_custom(uint16_t conn_handle, uint16_t att_handle,
 }
 
 namespace {
-    // Deterministic attribute handle for a characteristic. DfuService and
-    // FSService route by handle (not UUID); on hardware NimBLE assigns these,
-    // but the sim stubs registration. Both services' custom UUIDs encode a
-    // distinguishable 16-bit id in bytes [12..13] (DFU 0x1531/1532/1534, FS
-    // 0x0100/0x0200), so we use that as the handle — stable across find_chr
-    // (Dfu) and add_svcs val_handle (FS).
+    // Deterministic attribute handle for a characteristic. Services route by
+    // handle (or the bridge maps notifications by it); on hardware NimBLE
+    // assigns handles, but the sim stubs registration, so we derive them from
+    // the UUID:
+    //  - InfiniTime custom services (....-78fc-48fe-8e23-433b3a1942d0) all use
+    //    bytes [12..13] for the char id and byte [14] for the service id, and
+    //    several share char ids (music event 000000**01**, ANS call event
+    //    000200**01**). Fold the service byte in: handle = (value[14]<<8)|value[12]
+    //    (music event -> 0x0001, ANS call event -> 0x0201).
+    //  - Other 128-bit families (DFU ...-1212-efde-..., FS adaf....) keep the
+    //    original bytes[12..13] form: DFU 0x1531/0x1532/0x1534, FS 0x0100/0x0200.
+    constexpr uint8_t kInfiniTimeBase[6] = {0x23, 0x8e, 0xfe, 0x48, 0xfc, 0x78};
+
+    bool IsInfiniTimeCustomUuid(const ble_uuid128_t* u) {
+        for (int i = 0; i < 6; i++) {
+            if (u->value[6 + i] != kInfiniTimeBase[i]) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     uint16_t HandleForChr(const ble_uuid_t* chr_uuid) {
         if (chr_uuid != nullptr && chr_uuid->type == BLE_UUID_TYPE_128) {
             const auto* u = reinterpret_cast<const ble_uuid128_t*>(chr_uuid);
+            if (IsInfiniTimeCustomUuid(u)) {
+                return static_cast<uint16_t>(u->value[12] | (u->value[14] << 8));
+            }
             return static_cast<uint16_t>(u->value[12] | (u->value[13] << 8));
         }
         if (chr_uuid != nullptr && chr_uuid->type == BLE_UUID_TYPE_16) {

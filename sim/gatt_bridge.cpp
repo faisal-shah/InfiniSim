@@ -20,6 +20,8 @@
 #include "components/ble/FSService.h"
 #include "components/ble/AlertNotificationService.h"
 #include "components/battery/BatteryController.h"
+#include "components/ble/BleController.h"
+#include "components/ble/MusicService.h"
 #include "components/datetime/DateTimeController.h"
 #include "components/motion/MotionController.h"
 #include "systemtask/SystemTask.h"
@@ -52,11 +54,13 @@ namespace {
 GattBridge::GattBridge(Pinetime::System::SystemTask& systemTask,
                        Pinetime::Controllers::DateTime& dateTimeController,
                        Pinetime::Controllers::Battery& batteryController,
-                       Pinetime::Controllers::MotionController& motionController)
+                       Pinetime::Controllers::MotionController& motionController,
+                       Pinetime::Controllers::Ble& bleController)
   : systemTask {systemTask},
     dateTimeController {dateTimeController},
     batteryController {batteryController},
-    motionController {motionController} {
+    motionController {motionController},
+    bleController {bleController} {
 }
 
 GattBridge::~GattBridge() {
@@ -101,7 +105,9 @@ void GattBridge::CloseClient() {
     rxLen = 0;
     SimNotify::Clear(); // drop any pending notifications from the closed link
     // A dropped companion connection aborts any open sync transaction, exactly
-    // like a BLE disconnect.
+    // like a BLE disconnect. Also drop the fake "connected" state so guarded
+    // notifiers stop emitting into the void.
+    bleController.Disconnect();
     systemTask.nimble().schedule().OnDisconnect();
   }
 }
@@ -125,6 +131,10 @@ void GattBridge::Poll() {
     const int one = 1;
     setsockopt(clientFd, IPPROTO_TCP, TCP_NODELAY, &one, sizeof(one));
     rxLen = 0;
+    // Report "connected" to the firmware while a bridge client is attached, so
+    // guarded notifiers (music/call events via NimbleController::connHandle)
+    // actually emit instead of silently dropping.
+    bleController.Connect();
   }
   if (clientFd < 0) {
     return;
@@ -153,9 +163,32 @@ void GattBridge::DrainNotifications() {
   if (clientFd < 0) {
     return;
   }
-  uint8_t charId;
+  uint16_t attHandle;
+  uint8_t fallbackCharId;
   std::vector<uint8_t> bytes;
-  while (SimNotify::Pop(charId, bytes)) {
+  while (SimNotify::Pop(attHandle, fallbackCharId, bytes)) {
+    // Tag by the attribute handle the firmware notified on (see HandleForChr in
+    // sim/host/ble_gatt.cpp); the legacy activeCharId is the fallback for any
+    // source not mapped here.
+    uint8_t charId;
+    switch (attHandle) {
+      case 0x0001: // MusicService event char (00000001)
+        charId = static_cast<uint8_t>(CharId::MusicEvent);
+        break;
+      case 0x0201: // ANS call-event char (00020001)
+        charId = static_cast<uint8_t>(CharId::CallEvent);
+        break;
+      case 0x1531: // DFU control point
+      case 0x1534:
+        charId = static_cast<uint8_t>(CharId::DfuControl);
+        break;
+      case 0x0200: // FS transfer char
+        charId = static_cast<uint8_t>(CharId::FsTransfer);
+        break;
+      default:
+        charId = fallbackCharId;
+        break;
+    }
     SendNotification(charId, bytes.data(), static_cast<uint16_t>(bytes.size()));
   }
 }
@@ -359,6 +392,28 @@ uint8_t GattBridge::Dispatch(uint8_t charId, uint8_t op, const uint8_t* payload,
       out[3] = (steps >> 24) & 0xFF;
       outLen = 4;
       return 0;
+    }
+
+    case CharId::MusicStatus:
+    case CharId::MusicArtist:
+    case CharId::MusicTrack:
+    case CharId::MusicAlbum:
+    case CharId::MusicPosition:
+    case CharId::MusicTotalLength:
+    case CharId::MusicTrackNumber:
+    case CharId::MusicTrackTotal:
+    case CharId::MusicPlaybackSpeed:
+    case CharId::MusicRepeat:
+    case CharId::MusicShuffle: {
+      // MusicService metadata writes. OnCommand routes by characteristic UUID;
+      // FakeGattAccess carries it (music char byte 0x02..0x0c at value[12],
+      // service byte 0x00 at value[14]).
+      if (op != 0) {
+        return 0xFE;
+      }
+      const uint8_t chrByte = 0x02 + (charId - static_cast<uint8_t>(CharId::MusicStatus));
+      FakeGattAccess access(BLE_GATT_ACCESS_OP_WRITE_CHR, chrByte, const_cast<uint8_t*>(payload), len, 0x00);
+      return static_cast<uint8_t>(systemTask.nimble().music().OnCommand(&access.ctxt));
     }
 
     case CharId::DfuControl: {
