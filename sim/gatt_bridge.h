@@ -86,6 +86,9 @@ private:
     // Notify-only sources (watch -> phone), tagged by attribute handle.
     MusicEvent = 28, // 00000001 notify (1B event: open/play/pause/next/prev/vol)
     CallEvent = 29, // 00020001 notify (1B: 0=reject 1=accept 2=mute)
+    TasksSync = 30, // 000a0001 write -> TaskService::OnCommand (Begin/record/Commit/Abort/SetStreak)
+    TasksDigest = 31, // 000a0002 read  -> [protoVer][cap][count][taskVersion u32][streak u16]
+    TaskRead = 32, // 000a0003 write (select index) / read (31-byte record)
   };
 
   void HandleRequest();

@@ -13,6 +13,7 @@
 #include "host/ble_gatt.h"
 #include "host/ble_uuid.h"
 #include "components/ble/ScheduleService.h"
+#include "components/ble/TaskService.h"
 #include "components/ble/PrayerService.h"
 #include "components/ble/BeaconService.h"
 #include "components/ble/MultiAlarmService.h"
@@ -109,6 +110,7 @@ void GattBridge::CloseClient() {
     // notifiers stop emitting into the void.
     bleController.Disconnect();
     systemTask.nimble().schedule().OnDisconnect();
+    systemTask.nimble().tasks().OnDisconnect();
   }
 }
 
@@ -300,6 +302,43 @@ uint8_t GattBridge::Dispatch(uint8_t charId, uint8_t op, const uint8_t* payload,
       }
       FakeGattAccess access(BLE_GATT_ACCESS_OP_READ_CHR, 0x03, out, 0);
       const int rc = systemTask.nimble().schedule().OnCommand(&access.ctxt);
+      if (rc != 0) {
+        return static_cast<uint8_t>(rc);
+      }
+      outLen = access.buffer.om_len;
+      return 0;
+    }
+
+    // Task service lives on service byte 0x0a (Begin/record/Commit/Abort/SetStreak
+    // on 000a0001, digest incl. streak on 000a0002, index-select + record on 000a0003).
+    case CharId::TasksSync: {
+      if (op != 0) {
+        return 0xFE;
+      }
+      FakeGattAccess access(BLE_GATT_ACCESS_OP_WRITE_CHR, 0x01, const_cast<uint8_t*>(payload), len, 0x0a);
+      return static_cast<uint8_t>(systemTask.nimble().tasks().OnCommand(&access.ctxt));
+    }
+
+    case CharId::TasksDigest: {
+      if (op != 1) {
+        return 0xFE;
+      }
+      FakeGattAccess access(BLE_GATT_ACCESS_OP_READ_CHR, 0x02, out, 0, 0x0a);
+      const int rc = systemTask.nimble().tasks().OnCommand(&access.ctxt);
+      if (rc != 0) {
+        return static_cast<uint8_t>(rc);
+      }
+      outLen = access.buffer.om_len;
+      return 0;
+    }
+
+    case CharId::TaskRead: {
+      if (op == 0) {
+        FakeGattAccess access(BLE_GATT_ACCESS_OP_WRITE_CHR, 0x03, const_cast<uint8_t*>(payload), len, 0x0a);
+        return static_cast<uint8_t>(systemTask.nimble().tasks().OnCommand(&access.ctxt));
+      }
+      FakeGattAccess access(BLE_GATT_ACCESS_OP_READ_CHR, 0x03, out, 0, 0x0a);
+      const int rc = systemTask.nimble().tasks().OnCommand(&access.ctxt);
       if (rc != 0) {
         return static_cast<uint8_t>(rc);
       }

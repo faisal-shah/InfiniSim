@@ -23,6 +23,7 @@
 #include "components/ble/MotionService.h"
 #include "components/ble/SimpleWeatherService.h"
 #include "components/ble/ScheduleService.h"
+#include "components/ble/TaskService.h"
 #include "components/ble/PrayerService.h"
 #include "components/ble/BeaconService.h"
 #include "components/ble/MultiAlarmService.h"
@@ -44,6 +45,7 @@ namespace Pinetime {
     class Ble;
     class DateTime;
     class ScheduleController;
+    class TaskController;
     class PrayerController;
     class BeaconController;
     class MultiAlarmController;
@@ -65,6 +67,7 @@ namespace Pinetime {
                        Controllers::MotionController& motionController,
                        Pinetime::Controllers::FS& fs,
                        Controllers::ScheduleController& scheduleController,
+                       Controllers::TaskController& taskController,
                        Controllers::PrayerController& prayerController,
                        Controllers::MultiAlarmController& multiAlarmController,
                        Controllers::BeaconController& beaconController);
@@ -101,6 +104,10 @@ namespace Pinetime {
 
       Pinetime::Controllers::ScheduleService& schedule() {
         return scheduleService;
+      }
+
+      Pinetime::Controllers::TaskService& tasks() {
+        return taskService;
       }
 
       Pinetime::Controllers::PrayerService& prayer() {
@@ -164,6 +171,7 @@ namespace Pinetime {
       MusicService musicService;
       SimpleWeatherService weatherService;
       ScheduleService scheduleService;
+      TaskService taskService;
       PrayerService prayerService;
       BeaconService beaconService;
       MultiAlarmService multiAlarmService;

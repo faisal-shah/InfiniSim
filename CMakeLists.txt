@@ -204,6 +204,8 @@ target_sources(infinisim PUBLIC
   ${InfiniTime_DIR}/src/components/multialarm/MultiAlarmController.cpp
   ${InfiniTime_DIR}/src/components/schedule/ScheduleController.h
   ${InfiniTime_DIR}/src/components/schedule/ScheduleController.cpp
+  ${InfiniTime_DIR}/src/components/task/TaskController.h
+  ${InfiniTime_DIR}/src/components/task/TaskController.cpp
   ${InfiniTime_DIR}/src/components/prayer/PrayerRules.h
   ${InfiniTime_DIR}/src/components/prayer/PrayerController.h
   ${InfiniTime_DIR}/src/components/prayer/PrayerController.cpp
@@ -231,6 +233,8 @@ target_sources(infinisim PUBLIC
   ${InfiniTime_DIR}/src/components/ble/SimpleWeatherService.cpp
   ${InfiniTime_DIR}/src/components/ble/ScheduleService.h
   ${InfiniTime_DIR}/src/components/ble/ScheduleService.cpp
+  ${InfiniTime_DIR}/src/components/ble/TaskService.h
+  ${InfiniTime_DIR}/src/components/ble/TaskService.cpp
   ${InfiniTime_DIR}/src/components/ble/PrayerService.h
   ${InfiniTime_DIR}/src/components/ble/PrayerService.cpp
   ${InfiniTime_DIR}/src/components/ble/MultiAlarmService.cpp
