@@ -204,6 +204,8 @@ target_sources(infinisim PUBLIC
   ${InfiniTime_DIR}/src/components/multialarm/MultiAlarmController.cpp
   ${InfiniTime_DIR}/src/components/schedule/ScheduleController.h
   ${InfiniTime_DIR}/src/components/schedule/ScheduleController.cpp
+  ${InfiniTime_DIR}/src/components/fs/StagedList.h
+  ${InfiniTime_DIR}/src/components/fs/StagedList.cpp
   ${InfiniTime_DIR}/src/components/task/TaskController.h
   ${InfiniTime_DIR}/src/components/task/TaskController.cpp
   ${InfiniTime_DIR}/src/components/prayer/PrayerRules.h
