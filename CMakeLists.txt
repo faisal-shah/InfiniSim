@@ -233,6 +233,8 @@ target_sources(infinisim PUBLIC
   ${InfiniTime_DIR}/src/components/ble/SimpleWeatherService.cpp
   ${InfiniTime_DIR}/src/components/ble/ScheduleService.h
   ${InfiniTime_DIR}/src/components/ble/ScheduleService.cpp
+  ${InfiniTime_DIR}/src/components/ble/SyncWakeLock.h
+  ${InfiniTime_DIR}/src/components/ble/SyncWakeLock.cpp
   ${InfiniTime_DIR}/src/components/ble/TaskService.h
   ${InfiniTime_DIR}/src/components/ble/TaskService.cpp
   ${InfiniTime_DIR}/src/components/ble/PrayerService.h
