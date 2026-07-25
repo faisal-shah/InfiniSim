@@ -120,7 +120,7 @@ namespace Pinetime {
 
       Pinetime::Controllers::BeaconService& beacon() {
         return beaconService;
-      };
+      }
 
       Pinetime::Controllers::DfuService& dfu() {
         return dfuService;
@@ -140,14 +140,16 @@ namespace Pinetime {
       void EnableRadio();
       void DisableRadio();
 
-      // Beacon mode: no radio in the sim, so this just tracks intent so
-      // IsBeaconing() reflects the toggle for UI/tests.
+      // Beacon mode: the sim has no radio, so this only records the intent that
+      // the firmware's SystemTask asks for (SystemTask.cpp, BeaconEnable/Disable)
+      // and lets IsBeaconing() reflect it for the UI.
       void RequestBeaconMode(bool enable) {
         beaconActive = enable;
       }
       bool IsBeaconing() const {
         return beaconActive;
       }
+
 
     private:
       //      void PersistBond(struct ble_gap_conn_desc& desc);

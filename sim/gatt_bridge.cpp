@@ -258,6 +258,9 @@ uint8_t GattBridge::Forward(Access mode,
     FakeGattAccess access(BLE_GATT_ACCESS_OP_WRITE_CHR, charByte, const_cast<uint8_t*>(payload), len, serviceByte);
     return static_cast<uint8_t>(call(&access.ctxt));
   }
+  // om_pkthdr_len (the field carrying the capacity) is a uint8_t, so the
+  // response buffer must stay within its range or the guard would truncate.
+  static_assert(kResponseBufferSize <= 255, "response capacity must fit os_mbuf::om_pkthdr_len");
   FakeGattAccess access(BLE_GATT_ACCESS_OP_READ_CHR, charByte, out, 0, serviceByte, kResponseBufferSize);
   const int rc = call(&access.ctxt);
   if (rc != 0) {

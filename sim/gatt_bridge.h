@@ -6,9 +6,13 @@
 // end-to-end link between the PineTimeCompanion Android app running in an
 // emulator (host reachable as 10.0.2.2) and InfiniSim.
 //
-// Protocol (all little-endian):
-//   request:  [charId u8][op u8: 0=write, 1=read][len u16][payload len bytes]
-//   response: [status u8: 0=ok][len u16][payload len bytes]
+// Protocol (all little-endian). Ops: 0 = write, 1 = read, 2 = write-without-
+// response (processed, but no response frame is sent).
+//   request:       [charId u8][op u8][len u16][payload len bytes]
+//   response:      [status u8: 0=ok, ATT error, 0xFE bad op, 0xFF unknown char]
+//                  [len u16][payload len bytes]
+//   notification:  [0xF0][charId u8][len u16][payload len bytes]  (unsolicited,
+//                  watch -> client; interleaved between responses)
 //
 // charId  endpoint                          op
 //   0     Schedule Sync Command 00060001    write -> ScheduleService::OnCommand
@@ -20,9 +24,24 @@
 //   6     Prayer Settings       00070001    write (9-byte blob) / read (blob)
 //   7     Beacon Key            00080001    write (28-byte key) / read (hasKey)
 //   8     Beacon Control        00080002    write (0x01 = enable)
+//   9     Multi-Alarm           00090001    write (CAS blob) / read (blob)
+//  10     DFU Control Point     0x1531      write + notify (Nordic legacy DFU)
+//  11     DFU Packet            0x1532      write-no-response (firmware chunks)
+//  12     FS Transfer           adaf0200    write + notify (BLE filesystem)
+//  13     Firmware Revision     0x2A26      read (version string)
+//  14     Weather               00050001    write (current + forecast)
+//  15     Step Count            00030001    read (u32 LE, today)
+//  16     Step Count Yesterday  00030003    read (u32 LE, yesterday)
+//  17-27  Music metadata        000000xx    write (status/artist/track/…)
+//  28     Music Event           00000001    notify only (watch -> phone)
+//  29     Call Event            00020001    notify only (watch -> phone)
+//  30     Task Sync Command     000a0001    write -> TaskService::OnCommand
+//  31     Task Digest           000a0002    read  -> TaskService::OnCommand
+//  32     Task Read             000a0003    write (select index) / read (record)
 //
-// Single client at a time; polled from the SDL main loop (same thread as the
-// keyboard injectors, so calling the GATT handlers directly is safe).
+// Single client at a time: a new connection replaces the previous one, which is
+// closed. Polled from the SDL main loop (same thread as the keyboard injectors,
+// so calling the GATT handlers directly is safe).
 
 #include <cstdint>
 #include <cstddef>
