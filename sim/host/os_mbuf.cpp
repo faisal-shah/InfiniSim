@@ -37,15 +37,20 @@ os_mbuf_copydata(const struct os_mbuf *m, int off, int len, void *dst)
     return 0;
 }
 
-// Appends into the buffer om_data points at. The creator of the fake mbuf is
-// responsible for pointing om_data at storage large enough for the appended
-// data (om_flags carries the capacity for bounds checking when nonzero — see
-// gatt_bridge). Firmware code only checks the return value.
+// Appends into the buffer om_data points at. For sim fake mbufs om_pkthdr_len
+// carries the destination capacity (bytes) so an over-long append is rejected
+// instead of overrunning the creator's stack buffer; a capacity of 0 means the
+// creator vouches for the buffer (e.g. write buffers, which are never
+// appended). Firmware code only checks the return value, exactly as it does
+// against the real NimBLE mbuf-pool exhaustion.
 int
 os_mbuf_append(struct os_mbuf *om, const void *data,  uint16_t len)
 {
     if (om == NULL || om->om_data == NULL) {
         return -1;
+    }
+    if (om->om_pkthdr_len != 0 && (uint32_t) om->om_len + len > om->om_pkthdr_len) {
+        return -1; // would overrun the response buffer
     }
     memcpy(om->om_data + om->om_len, data, len);
     om->om_len += len;

@@ -26,6 +26,9 @@
 
 #include <cstdint>
 #include <cstddef>
+#include <functional>
+
+struct ble_gatt_access_ctxt;
 
 namespace Pinetime {
   namespace Controllers {
@@ -91,8 +94,31 @@ private:
     TaskRead = 32, // 000a0003 write (select index) / read (31-byte record)
   };
 
+  // Response payloads are assembled into a fixed stack buffer of this size; the
+  // capacity is handed to os_mbuf_append so an over-long service read is
+  // rejected instead of overrunning it.
+  static constexpr uint16_t kResponseBufferSize = 64;
+
+  // How a characteristic is accessed over the bridge, and the op it requires:
+  //   Write      op 0 only  -> forward as a GATT write
+  //   Read       op 1 only  -> forward as a GATT read, return the payload
+  //   WriteRead  op 0 write (e.g. select an index) / op 1 read (fetch a record)
+  enum class Access { Write, Read, WriteRead };
+
   void HandleRequest();
   uint8_t Dispatch(uint8_t charId, uint8_t op, const uint8_t* payload, uint16_t len, uint8_t* out, uint16_t& outLen);
+  // Build a fake GATT access to (charByte, serviceByte), invoke `call` (which
+  // routes to the right firmware service), and for reads copy the produced
+  // length into outLen. Returns the bridge status byte (0 ok, or an ATT error).
+  uint8_t Forward(Access mode,
+                  uint8_t op,
+                  uint8_t charByte,
+                  uint8_t serviceByte,
+                  const std::function<int(ble_gatt_access_ctxt*)>& call,
+                  const uint8_t* payload,
+                  uint16_t len,
+                  uint8_t* out,
+                  uint16_t& outLen);
   void SendResponse(uint8_t status, const uint8_t* payload, uint16_t len);
   void SendNotification(uint8_t charId, const uint8_t* payload, uint16_t len);
   void DrainNotifications();

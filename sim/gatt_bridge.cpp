@@ -39,12 +39,15 @@ namespace {
     ble_uuid128_t uuid {};
     ble_gatt_access_ctxt ctxt {};
 
-    FakeGattAccess(uint8_t op, uint8_t charIdByte, uint8_t* data, uint16_t len, uint8_t serviceByte = 0x06) {
+    // capacity: bytes available at `data` for a read to append into (0 for
+    // writes, which never append). os_mbuf_append bounds-checks against it.
+    FakeGattAccess(uint8_t op, uint8_t charIdByte, uint8_t* data, uint16_t len, uint8_t serviceByte = 0x06, uint8_t capacity = 0) {
       uuid = ble_uuid128_t {.u = {.type = BLE_UUID_TYPE_128},
                             .value = {0xd0, 0x42, 0x19, 0x3a, 0x3b, 0x43, 0x23, 0x8e, 0xfe, 0x48, 0xfc, 0x78, charIdByte, 0x00, serviceByte, 0x00}};
       chrDef.uuid = &uuid.u;
       buffer.om_data = data;
       buffer.om_len = op == BLE_GATT_ACCESS_OP_WRITE_CHR ? len : 0;
+      buffer.om_pkthdr_len = capacity;
       ctxt.op = op;
       ctxt.om = &buffer;
       ctxt.chr = &chrDef;
@@ -220,7 +223,7 @@ void GattBridge::HandleRequest() {
       return; // wait for the rest
     }
 
-    uint8_t out[64];
+    uint8_t out[kResponseBufferSize];
     uint16_t outLen = 0;
     const uint8_t op = rxBuffer[1];
     const uint8_t status = Dispatch(rxBuffer[0], op, &rxBuffer[4], payloadLen, out, outLen);
@@ -235,29 +238,73 @@ void GattBridge::HandleRequest() {
   }
 }
 
+uint8_t GattBridge::Forward(Access mode,
+                            uint8_t op,
+                            uint8_t charByte,
+                            uint8_t serviceByte,
+                            const std::function<int(ble_gatt_access_ctxt*)>& call,
+                            const uint8_t* payload,
+                            uint16_t len,
+                            uint8_t* out,
+                            uint16_t& outLen) {
+  const bool write = op == 0;
+  const bool read = op == 1;
+  const bool ok =
+    (mode == Access::Write && write) || (mode == Access::Read && read) || (mode == Access::WriteRead && (write || read));
+  if (!ok) {
+    return 0xFE;
+  }
+  if (write) {
+    FakeGattAccess access(BLE_GATT_ACCESS_OP_WRITE_CHR, charByte, const_cast<uint8_t*>(payload), len, serviceByte);
+    return static_cast<uint8_t>(call(&access.ctxt));
+  }
+  FakeGattAccess access(BLE_GATT_ACCESS_OP_READ_CHR, charByte, out, 0, serviceByte, kResponseBufferSize);
+  const int rc = call(&access.ctxt);
+  if (rc != 0) {
+    return static_cast<uint8_t>(rc);
+  }
+  outLen = access.buffer.om_len;
+  return 0;
+}
+
 uint8_t GattBridge::Dispatch(uint8_t charId, uint8_t op, const uint8_t* payload, uint16_t len, uint8_t* out, uint16_t& outLen) {
   outLen = 0;
   switch (static_cast<CharId>(charId)) {
-    case CharId::ScheduleSync: {
-      if (op != 0) {
-        return 0xFE;
-      }
-      FakeGattAccess access(BLE_GATT_ACCESS_OP_WRITE_CHR, 0x01, const_cast<uint8_t*>(payload), len);
-      return static_cast<uint8_t>(systemTask.nimble().schedule().OnCommand(&access.ctxt));
-    }
+    // Custom fork services — one line each; Forward builds the fake access,
+    // validates the op, routes to the service, and (for reads) captures the
+    // response length. Service byte: schedule 0x06, prayer 0x07, beacon 0x08,
+    // multi-alarm 0x09, task 0x0a.
+    case CharId::ScheduleSync:
+      return Forward(Access::Write, op, 0x01, 0x06, [&](ble_gatt_access_ctxt* c) { return systemTask.nimble().schedule().OnCommand(c); }, payload, len, out, outLen);
+    case CharId::ScheduleDigest:
+      return Forward(Access::Read, op, 0x02, 0x06, [&](ble_gatt_access_ctxt* c) { return systemTask.nimble().schedule().OnCommand(c); }, payload, len, out, outLen);
+    case CharId::EventRead:
+      return Forward(Access::WriteRead, op, 0x03, 0x06, [&](ble_gatt_access_ctxt* c) { return systemTask.nimble().schedule().OnCommand(c); }, payload, len, out, outLen);
 
-    case CharId::ScheduleDigest: {
-      if (op != 1) {
-        return 0xFE;
-      }
-      FakeGattAccess access(BLE_GATT_ACCESS_OP_READ_CHR, 0x02, out, 0);
-      const int rc = systemTask.nimble().schedule().OnCommand(&access.ctxt);
-      if (rc != 0) {
-        return static_cast<uint8_t>(rc);
-      }
-      outLen = access.buffer.om_len;
-      return 0;
-    }
+    case CharId::TasksSync:
+      return Forward(Access::Write, op, 0x01, 0x0a, [&](ble_gatt_access_ctxt* c) { return systemTask.nimble().tasks().OnCommand(c); }, payload, len, out, outLen);
+    case CharId::TasksDigest:
+      return Forward(Access::Read, op, 0x02, 0x0a, [&](ble_gatt_access_ctxt* c) { return systemTask.nimble().tasks().OnCommand(c); }, payload, len, out, outLen);
+    case CharId::TaskRead:
+      return Forward(Access::WriteRead, op, 0x03, 0x0a, [&](ble_gatt_access_ctxt* c) { return systemTask.nimble().tasks().OnCommand(c); }, payload, len, out, outLen);
+
+    case CharId::PrayerSettings:
+      return Forward(Access::WriteRead, op, 0x01, 0x07, [&](ble_gatt_access_ctxt* c) { return systemTask.nimble().prayer().OnCommand(c); }, payload, len, out, outLen);
+
+    case CharId::BeaconKey:
+      return Forward(Access::WriteRead, op, 0x01, 0x08, [&](ble_gatt_access_ctxt* c) { return systemTask.nimble().beacon().OnCommand(c); }, payload, len, out, outLen);
+    case CharId::BeaconControl:
+      return Forward(Access::Write, op, 0x02, 0x08, [&](ble_gatt_access_ctxt* c) { return systemTask.nimble().beacon().OnCommand(c); }, payload, len, out, outLen);
+
+    case CharId::MultiAlarm:
+      return Forward(Access::WriteRead, op, 0x01, 0x09, [&](ble_gatt_access_ctxt* c) { return systemTask.nimble().multiAlarm().OnCommand(c); }, payload, len, out, outLen);
+
+    // AlertNotificationService routes on om_data only, so the UUID is irrelevant.
+    case CharId::NewAlert:
+      return Forward(Access::Write, op, 0x00, 0x06, [&](ble_gatt_access_ctxt* c) { return systemTask.nimble().alertService().OnAlert(c); }, payload, len, out, outLen);
+    // SimpleWeatherService likewise routes on om_data only.
+    case CharId::Weather:
+      return Forward(Access::Write, op, 0x00, 0x06, [&](ble_gatt_access_ctxt* c) { return systemTask.nimble().weather().OnCommand(c); }, payload, len, out, outLen);
 
     case CharId::CurrentTime: {
       // Standard CTS 0x2A2B layout, same parsing as CurrentTimeService.
@@ -267,132 +314,6 @@ uint8_t GattBridge::Dispatch(uint8_t charId, uint8_t op, const uint8_t* payload,
       uint16_t year;
       std::memcpy(&year, &payload[0], sizeof(year));
       dateTimeController.SetTime(year, payload[2], payload[3], payload[4], payload[5], payload[6]);
-      printf("InfiniSim: bridge set time to %04u-%02u-%02u %02u:%02u:%02u\n",
-             year,
-             payload[2],
-             payload[3],
-             payload[4],
-             payload[5],
-             payload[6]);
-      return 0;
-    }
-
-    case CharId::NewAlert: {
-      if (op != 0) {
-        return 0xFE;
-      }
-      FakeGattAccess access(BLE_GATT_ACCESS_OP_WRITE_CHR, 0x00, const_cast<uint8_t*>(payload), len);
-      return static_cast<uint8_t>(systemTask.nimble().alertService().OnAlert(&access.ctxt));
-    }
-
-    case CharId::Weather: {
-      // SimpleWeatherService write: current-weather or forecast message. OnCommand
-      // reads only ctxt->om->om_data, so the fake access UUID/handle is irrelevant.
-      if (op != 0) {
-        return 0xFE;
-      }
-      FakeGattAccess access(BLE_GATT_ACCESS_OP_WRITE_CHR, 0x00, const_cast<uint8_t*>(payload), len);
-      return static_cast<uint8_t>(systemTask.nimble().weather().OnCommand(&access.ctxt));
-    }
-
-    case CharId::EventRead: {
-      if (op == 0) {
-        FakeGattAccess access(BLE_GATT_ACCESS_OP_WRITE_CHR, 0x03, const_cast<uint8_t*>(payload), len);
-        return static_cast<uint8_t>(systemTask.nimble().schedule().OnCommand(&access.ctxt));
-      }
-      FakeGattAccess access(BLE_GATT_ACCESS_OP_READ_CHR, 0x03, out, 0);
-      const int rc = systemTask.nimble().schedule().OnCommand(&access.ctxt);
-      if (rc != 0) {
-        return static_cast<uint8_t>(rc);
-      }
-      outLen = access.buffer.om_len;
-      return 0;
-    }
-
-    // Task service lives on service byte 0x0a (Begin/record/Commit/Abort/SetStreak
-    // on 000a0001, digest incl. streak on 000a0002, index-select + record on 000a0003).
-    case CharId::TasksSync: {
-      if (op != 0) {
-        return 0xFE;
-      }
-      FakeGattAccess access(BLE_GATT_ACCESS_OP_WRITE_CHR, 0x01, const_cast<uint8_t*>(payload), len, 0x0a);
-      return static_cast<uint8_t>(systemTask.nimble().tasks().OnCommand(&access.ctxt));
-    }
-
-    case CharId::TasksDigest: {
-      if (op != 1) {
-        return 0xFE;
-      }
-      FakeGattAccess access(BLE_GATT_ACCESS_OP_READ_CHR, 0x02, out, 0, 0x0a);
-      const int rc = systemTask.nimble().tasks().OnCommand(&access.ctxt);
-      if (rc != 0) {
-        return static_cast<uint8_t>(rc);
-      }
-      outLen = access.buffer.om_len;
-      return 0;
-    }
-
-    case CharId::TaskRead: {
-      if (op == 0) {
-        FakeGattAccess access(BLE_GATT_ACCESS_OP_WRITE_CHR, 0x03, const_cast<uint8_t*>(payload), len, 0x0a);
-        return static_cast<uint8_t>(systemTask.nimble().tasks().OnCommand(&access.ctxt));
-      }
-      FakeGattAccess access(BLE_GATT_ACCESS_OP_READ_CHR, 0x03, out, 0, 0x0a);
-      const int rc = systemTask.nimble().tasks().OnCommand(&access.ctxt);
-      if (rc != 0) {
-        return static_cast<uint8_t>(rc);
-      }
-      outLen = access.buffer.om_len;
-      return 0;
-    }
-
-    case CharId::PrayerSettings: {
-      if (op == 0) {
-        FakeGattAccess access(BLE_GATT_ACCESS_OP_WRITE_CHR, 0x01, const_cast<uint8_t*>(payload), len, 0x07);
-        return static_cast<uint8_t>(systemTask.nimble().prayer().OnCommand(&access.ctxt));
-      }
-      FakeGattAccess access(BLE_GATT_ACCESS_OP_READ_CHR, 0x01, out, 0, 0x07);
-      const int rc = systemTask.nimble().prayer().OnCommand(&access.ctxt);
-      if (rc != 0) {
-        return static_cast<uint8_t>(rc);
-      }
-      outLen = access.buffer.om_len;
-      return 0;
-    }
-
-    case CharId::BeaconKey: {
-      if (op == 0) {
-        FakeGattAccess access(BLE_GATT_ACCESS_OP_WRITE_CHR, 0x01, const_cast<uint8_t*>(payload), len, 0x08);
-        return static_cast<uint8_t>(systemTask.nimble().beacon().OnCommand(&access.ctxt));
-      }
-      FakeGattAccess access(BLE_GATT_ACCESS_OP_READ_CHR, 0x01, out, 0, 0x08);
-      const int rc = systemTask.nimble().beacon().OnCommand(&access.ctxt);
-      if (rc != 0) {
-        return static_cast<uint8_t>(rc);
-      }
-      outLen = access.buffer.om_len;
-      return 0;
-    }
-
-    case CharId::BeaconControl: {
-      if (op != 0) {
-        return 0xFE;
-      }
-      FakeGattAccess access(BLE_GATT_ACCESS_OP_WRITE_CHR, 0x02, const_cast<uint8_t*>(payload), len, 0x08);
-      return static_cast<uint8_t>(systemTask.nimble().beacon().OnCommand(&access.ctxt));
-    }
-
-    case CharId::MultiAlarm: {
-      if (op == 0) {
-        FakeGattAccess access(BLE_GATT_ACCESS_OP_WRITE_CHR, 0x01, const_cast<uint8_t*>(payload), len, 0x09);
-        return static_cast<uint8_t>(systemTask.nimble().multiAlarm().OnCommand(&access.ctxt));
-      }
-      FakeGattAccess access(BLE_GATT_ACCESS_OP_READ_CHR, 0x01, out, 0, 0x09);
-      const int rc = systemTask.nimble().multiAlarm().OnCommand(&access.ctxt);
-      if (rc != 0) {
-        return static_cast<uint8_t>(rc);
-      }
-      outLen = access.buffer.om_len;
       return 0;
     }
 
