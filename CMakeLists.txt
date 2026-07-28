@@ -14,11 +14,7 @@ endif()
 file(READ "${InfiniTime_DIR}/CMakeLists.txt" main_cmake)
 string(REGEX MATCH "project\\(pinetime VERSION ([0-9]*\.[0-9]*\.[0-9]*)" _ ${main_cmake})
 set(PROJECT_VERSION ${CMAKE_MATCH_1})
-# ...and the fork's build identifier, so the simulated watch reports the same
-# version string as the real one (it rides in Version.h.in's versionString).
-string(REGEX MATCH "PROJECT_VERSION_SUFFIX \"([^\"]*)\"" _ ${main_cmake})
-set(PROJECT_VERSION_SUFFIX ${CMAKE_MATCH_1})
-message(STATUS "InfiniTime PROJECT_VERSION extracted: ${PROJECT_VERSION}${PROJECT_VERSION_SUFFIX}")
+message(STATUS "InfiniTime PROJECT_VERSION extracted: ${PROJECT_VERSION}")
 
 project(InfiniSim VERSION ${PROJECT_VERSION} LANGUAGES C CXX)
 # https://cmake.org/cmake/help/latest/prop_tgt/CXX_STANDARD.html
