@@ -435,7 +435,6 @@ Pinetime::System::SystemTask systemTask(spi,
 
 // variable used in SystemTask.cpp Work loop
 std::chrono::time_point<std::chrono::system_clock, std::chrono::nanoseconds> NoInit_BackUpTime;
-bool NoInit_BackUpTimeKnown = false;
 
 class Framework {
 public:
