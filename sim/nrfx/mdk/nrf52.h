@@ -101,6 +101,7 @@ typedef struct {                                /*!< (@ 0x40010000) WDT Structur
 // simulator specific pointer and initialization function
 extern NRF_WDT_Type *NRF_WDT;
 void init_NRF_WDT();
+void start_watchdog_monitor();
 
 
 /* =========================================================================================================================== */
