@@ -8,6 +8,26 @@
 
 using namespace Pinetime::Drivers;
 
+// Instrumentation: the sim's "flash" is a host file, so it cannot reproduce a
+// slow SPI NOR -- but it can count the transactions that make real hardware
+// slow. Dump with SIGUSR1.
+#include <csignal>
+namespace {
+  unsigned long flashReads = 0, flashWrites = 0, flashErases = 0;
+  unsigned long flashReadBytes = 0, flashWriteBytes = 0;
+  volatile sig_atomic_t dumpRequested = 0;
+  void OnDumpSignal(int) { dumpRequested = 1; }
+  struct DumpInstaller { DumpInstaller() { std::signal(SIGUSR1, OnDumpSignal); } } dumpInstaller;
+  void MaybeDump() {
+    if (dumpRequested) {
+      dumpRequested = 0;
+      fprintf(stderr, "[flashstats] reads=%lu (%lu B) writes=%lu (%lu B) erases=%lu\n",
+              flashReads, flashReadBytes, flashWrites, flashWriteBytes, flashErases);
+      fflush(stderr);
+    }
+  }
+}
+
 SpiNorFlash::SpiNorFlash(const std::string& memoryFilePath) : memoryFilePath {memoryFilePath} {
   namespace fs = std::filesystem;
   fs::path f {memoryFilePath};
@@ -79,6 +99,7 @@ uint8_t SpiNorFlash::ReadConfigurationRegister() {
 }
 
 void SpiNorFlash::Read(uint32_t address, uint8_t* buffer, size_t size) {
+  flashReads++; flashReadBytes += size; MaybeDump();
   static_assert(sizeof(uint8_t) == sizeof(char));
   AssertAwake("Read");
   if (address + size * sizeof(uint8_t) > memorySize) {
@@ -92,6 +113,7 @@ void SpiNorFlash::WriteEnable() {
 }
 
 void SpiNorFlash::SectorErase(uint32_t sectorAddress) {
+  flashErases++; MaybeDump();
   AssertAwake("SectorErase");
   (void) sectorAddress;
 }
@@ -113,6 +135,7 @@ SpiNorFlash::Identification SpiNorFlash::GetIdentification() const {
 }
 
 void SpiNorFlash::Write(uint32_t address, const uint8_t* buffer, size_t size) {
+  flashWrites++; flashWriteBytes += size; MaybeDump();
   AssertAwake("Write");
   if (address + size * sizeof(uint8_t) > memorySize) {
     throw std::runtime_error("SpiNorFlash::Write out of bounds");

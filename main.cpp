@@ -472,6 +472,15 @@ public:
     motorController.Init();
     settingsController.Init();
 
+    // Real hardware reports a bootloader version here, and SystemTask only
+    // calls spiNorFlash.Sleep() when BootloaderVersion::IsValid(). Leaving it
+    // at 0 meant the simulated flash NEVER slept, so SpiNorFlash::AssertAwake
+    // -- the tripwire for accessing flash while it is powered down -- could
+    // never fire. That blind spot hid a watchdog reset on the schedule/task
+    // sync commit. Report a valid version so the sim sleeps the flash like the
+    // watch does.
+    Pinetime::BootloaderVersion::SetVersion(0x00010000);
+
     printf("initial free_size = %u\n", xPortGetFreeHeapSize());
 
     // update time to current system time once on startup
