@@ -12,20 +12,37 @@ using namespace Pinetime::Drivers;
 // slow SPI NOR -- but it can count the transactions that make real hardware
 // slow. Dump with SIGUSR1.
 #include <csignal>
+#include <chrono>
+#include <thread>
 namespace {
   unsigned long flashReads = 0, flashWrites = 0, flashErases = 0;
   unsigned long flashReadBytes = 0, flashWriteBytes = 0;
   volatile sig_atomic_t dumpRequested = 0;
   void OnDumpSignal(int) { dumpRequested = 1; }
   struct DumpInstaller { DumpInstaller() { std::signal(SIGUSR1, OnDumpSignal); } } dumpInstaller;
-  void MaybeDump() {
-    if (dumpRequested) {
-      dumpRequested = 0;
+  void DumpNow() {
+    {
       fprintf(stderr, "[flashstats] reads=%lu (%lu B) writes=%lu (%lu B) erases=%lu\n",
               flashReads, flashReadBytes, flashWrites, flashWriteBytes, flashErases);
       fflush(stderr);
     }
   }
+
+  // Serviced by a thread, not by the flash path: a dump requested while the
+  // flash is idle must still print, or callers silently read a stale line and
+  // measure zero.
+  void DumpWatcher() {
+    while (true) {
+      if (dumpRequested) {
+        dumpRequested = 0;
+        DumpNow();
+      }
+      std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
+  }
+  struct DumpThread {
+    DumpThread() { std::thread(DumpWatcher).detach(); }
+  } dumpThread;
 }
 
 SpiNorFlash::SpiNorFlash(const std::string& memoryFilePath) : memoryFilePath {memoryFilePath} {
@@ -99,7 +116,7 @@ uint8_t SpiNorFlash::ReadConfigurationRegister() {
 }
 
 void SpiNorFlash::Read(uint32_t address, uint8_t* buffer, size_t size) {
-  flashReads++; flashReadBytes += size; MaybeDump();
+  flashReads++; flashReadBytes += size;
   static_assert(sizeof(uint8_t) == sizeof(char));
   AssertAwake("Read");
   if (address + size * sizeof(uint8_t) > memorySize) {
@@ -113,7 +130,7 @@ void SpiNorFlash::WriteEnable() {
 }
 
 void SpiNorFlash::SectorErase(uint32_t sectorAddress) {
-  flashErases++; MaybeDump();
+  flashErases++;
   AssertAwake("SectorErase");
   (void) sectorAddress;
 }
@@ -135,7 +152,7 @@ SpiNorFlash::Identification SpiNorFlash::GetIdentification() const {
 }
 
 void SpiNorFlash::Write(uint32_t address, const uint8_t* buffer, size_t size) {
-  flashWrites++; flashWriteBytes += size; MaybeDump();
+  flashWrites++; flashWriteBytes += size;
   AssertAwake("Write");
   if (address + size * sizeof(uint8_t) > memorySize) {
     throw std::runtime_error("SpiNorFlash::Write out of bounds");
