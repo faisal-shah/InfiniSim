@@ -73,6 +73,16 @@ namespace Pinetime {
                        Controllers::BeaconController& beaconController);
       void Init();
       void StartAdvertising();
+
+      // No radio here, so nothing can stop advertising and there is nothing to
+      // recover. Present because SystemTask (shared with the firmware) calls it
+      // every 100 ms; see the firmware NimbleController for what it does there.
+      void EnsureAdvertising() {
+      }
+
+      uint8_t AdvertisingRecoveries() const {
+        return 0;
+      }
       //      int OnGAPEvent(ble_gap_event* event);
 
       //      int OnDiscoveryEvent(uint16_t i, const ble_gatt_error* pError, const ble_gatt_svc* pSvc);
