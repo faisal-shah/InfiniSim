@@ -311,3 +311,10 @@ This project is released under the GNU General Public License version 3 or, at y
 The same license as [InfiniTime](https://github.com/InfiniTimeOrg/InfiniTime).
 
 The simulator is based on [lv_sim_eclipse_sdl](https://github.com/lvgl/lv_sim_eclipse_sdl) project under the MIT license.
+
+## Agent handoff
+
+Agents continuing the family BLE simulation work must read
+`.memory/context.md`, `.memory/progress.md`, and `.memory/lessons.md`. The
+simulator integration is complete; remaining acceptance is physical and must
+not be replaced with fake RF, SMP, or current features.
