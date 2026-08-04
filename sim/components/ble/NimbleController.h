@@ -26,8 +26,11 @@
 #include "components/ble/TaskService.h"
 #include "components/ble/PrayerService.h"
 #include "components/ble/BeaconService.h"
+#include "components/ble/CompanionManagementService.h"
+#include "components/ble/CompanionManagementStatus.h"
 #include "components/ble/MultiAlarmService.h"
 #include "components/fs/FS.h"
+#include "ble/VirtualBleAdapter.h"
 
 // #include "components/ble/FSService.h"
 
@@ -54,7 +57,7 @@ namespace Pinetime {
     class MotionController;
     class NotificationManager;
 
-    class NimbleController {
+    class NimbleController : public CompanionStatusProvider {
 
     public:
       NimbleController(Pinetime::System::SystemTask& systemTask,
@@ -73,16 +76,9 @@ namespace Pinetime {
                        Controllers::BeaconController& beaconController);
       void Init();
       void StartAdvertising();
+      void EnsureAdvertising();
 
-      // No radio here, so nothing can stop advertising and there is nothing to
-      // recover. Present because SystemTask (shared with the firmware) calls it
-      // every 100 ms; see the firmware NimbleController for what it does there.
-      void EnsureAdvertising() {
-      }
-
-      uint8_t AdvertisingRecoveries() const {
-        return 0;
-      }
+      uint8_t AdvertisingRecoveries() const;
       //      int OnGAPEvent(ble_gap_event* event);
 
       //      int OnDiscoveryEvent(uint16_t i, const ble_gatt_error* pError, const ble_gatt_svc* pSvc);
@@ -140,26 +136,45 @@ namespace Pinetime {
         return fsService;
       }
 
+      Pinetime::Controllers::CompanionManagementService& companionManagement() {
+        return companionManagementService;
+      }
+
       uint16_t connHandle();
       void NotifyBatteryLevel(uint8_t level);
 
+      void RequestFastAdvertising();
+
       void RestartFastAdv() {
-        fastAdvCount = 0;
+        RequestFastAdvertising();
       }
 
       void EnableRadio();
       void DisableRadio();
 
-      // Beacon mode: the sim has no radio, so this only records the intent that
-      // the firmware's SystemTask asks for (SystemTask.cpp, BeaconEnable/Disable)
-      // and lets IsBeaconing() reflect it for the UI.
-      void RequestBeaconMode(bool enable) {
-        beaconActive = enable;
-      }
-      bool IsBeaconing() const {
-        return beaconActive;
+      void RequestBeaconMode(bool enable);
+      bool IsBeaconing() const;
+
+      InfiniSim::Ble::VirtualBleAdapter::AttachResult AttachVirtualLink();
+      InfiniSim::Ble::VirtualBleAdapter::AttachResult ForceAttachVirtualLink();
+      void DetachVirtualLink();
+      void AdvanceVirtualPolicyTime(uint32_t milliseconds);
+      void DrainVirtualPolicy();
+      void ResetVirtualBle(bool removePersistentFile);
+      void RebootVirtualBle();
+      void PersistBondStore();
+      void RequestForgetAllBonds();
+      CompanionManagementStatus GetCompanionStatus() const override;
+      bool IsVirtualLinkConnected() const;
+      bool IsVirtualLinkAuthenticated() const;
+
+      InfiniSim::Ble::VirtualBleAdapter& VirtualBle() {
+        return virtualBle;
       }
 
+      const InfiniSim::Ble::VirtualBleAdapter& VirtualBle() const {
+        return virtualBle;
+      }
 
     private:
       //      void PersistBond(struct ble_gap_conn_desc& desc);
@@ -187,7 +202,7 @@ namespace Pinetime {
       PrayerService prayerService;
       BeaconService beaconService;
       MultiAlarmService multiAlarmService;
-      bool beaconActive = false;
+      CompanionManagementService companionManagementService;
       NavigationService navService;
       //      BatteryInformationService batteryInformationService;
       //      ImmediateAlertService immediateAlertService;
@@ -200,6 +215,10 @@ namespace Pinetime {
       uint16_t connectionHandle = BLE_HS_CONN_HANDLE_NONE;
       uint8_t fastAdvCount = 0;
       uint8_t bondId[16] = {0};
+      InfiniSim::Ble::VirtualBleAdapter virtualBle;
+
+      void RunDisconnectCleanup();
+      void PublishVirtualDiagnostics();
 
       //      ble_uuid128_t dfuServiceUuid {
       //        .u {.type = BLE_UUID_TYPE_128},
@@ -208,4 +227,11 @@ namespace Pinetime {
 
     //    static NimbleController* nptr;
   }
+}
+
+namespace Pinetime::System {
+  // SystemTask's portable notification helper names this controller through its
+  // enclosing namespace. Keep that source unchanged while compiling it in the
+  // simulator.
+  using NotificationManager = Pinetime::Controllers::NotificationManager;
 }

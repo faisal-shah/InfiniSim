@@ -19,6 +19,7 @@
 #include "components/datetime/DateTimeController.h"
 #include "components/fs/FS.h"
 #include "systemtask/SystemTask.h"
+#include "ble/VirtualRadioIntent.h"
 
 using namespace Pinetime::Controllers;
 
@@ -56,6 +57,7 @@ NimbleController::NimbleController(Pinetime::System::SystemTask& systemTask,
     prayerService {systemTask, prayerController},
     beaconService {systemTask, beaconController},
     multiAlarmService {systemTask, multiAlarmController},
+    companionManagementService {*this},
     //    batteryInformationService {batteryController},
     //    immediateAlertService {systemTask, notificationManager},
     //    heartRateService {systemTask, heartRateController},
@@ -85,6 +87,7 @@ NimbleController::NimbleController(Pinetime::System::SystemTask& systemTask,
 // }
 
 void NimbleController::Init() {
+  virtualBle.Initialize();
   //  while (!ble_hs_synced()) {
   //  }
   //
@@ -106,6 +109,7 @@ void NimbleController::Init() {
   prayerService.Init();
   beaconService.Init();
   multiAlarmService.Init();
+  companionManagementService.Init();
   navService.Init();
   //  anService.Init();
   dfuService.Init();
@@ -114,6 +118,7 @@ void NimbleController::Init() {
   //  heartRateService.Init();
   //  motionService.Init();
   fsService.Init();
+  PublishVirtualDiagnostics();
   //
   //  int rc;
   //  rc = ble_hs_util_ensure_addr(0);
@@ -150,6 +155,25 @@ void NimbleController::Init() {
   //  RestoreBond();
   //
   //  StartAdvertising();
+}
+
+void NimbleController::StartAdvertising() {
+  virtualBle.RequestFastConnectable();
+  DrainVirtualPolicy();
+}
+
+void NimbleController::RequestFastAdvertising() {
+  virtualBle.RequestFastConnectable();
+  DrainVirtualPolicy();
+}
+
+void NimbleController::EnsureAdvertising() {
+  DrainVirtualPolicy();
+}
+
+uint8_t NimbleController::AdvertisingRecoveries() const {
+  const uint32_t recoveries = virtualBle.Query().radioRecoveries;
+  return static_cast<uint8_t>(recoveries > UINT8_MAX ? UINT8_MAX : recoveries);
 }
 
 // void NimbleController::StartAdvertising() {
@@ -387,7 +411,7 @@ uint16_t NimbleController::connHandle() {
   // drop. Report a fake valid handle while "connected" (the GATT bridge drives
   // bleController.Connect/Disconnect on TCP client attach; the 'b' hotkey also
   // toggles it) so those notifications flow into the SimNotify queue.
-  if (bleController.IsConnected()) {
+  if (virtualBle.Connected()) {
     return 1;
   }
   return connectionHandle;
@@ -400,20 +424,124 @@ void NimbleController::NotifyBatteryLevel(uint8_t level) {
 }
 
 void NimbleController::EnableRadio() {
-  //  bleController.EnableRadio();
-  //  bleController.Disconnect();
-  //  fastAdvCount = 0;
-  //  StartAdvertising();
+  bleController.EnableRadio();
+  virtualBle.SetDesiredMode(InfiniSim::Ble::VirtualBleAdapter::Radio::DesiredMode::Connectable);
+  DrainVirtualPolicy();
 }
 
 void NimbleController::DisableRadio() {
-  //  bleController.DisableRadio();
-  //  if (bleController.IsConnected()) {
-  //    ble_gap_terminate(connectionHandle, BLE_ERR_REM_USER_CONN_TERM);
-  //    bleController.Disconnect();
-  //  } else {
-  //    ble_gap_adv_stop();
-  //  }
+  bleController.DisableRadio();
+  virtualBle.SetDesiredMode(InfiniSim::Ble::VirtualBleAdapter::Radio::DesiredMode::Off);
+  DrainVirtualPolicy();
+}
+
+void NimbleController::RequestBeaconMode(bool enable) {
+  const bool radioEnabled = bleController.IsRadioEnabled();
+  virtualBle.SetDesiredMode(InfiniSim::Ble::DesiredModeForBeaconRequest(enable, radioEnabled));
+  if (!enable && radioEnabled) {
+    virtualBle.RequestFastConnectable();
+  }
+  DrainVirtualPolicy();
+}
+
+bool NimbleController::IsBeaconing() const {
+  return virtualBle.Query().actual == InfiniSim::Ble::VirtualBleAdapter::Radio::Mode::Beacon;
+}
+
+InfiniSim::Ble::VirtualBleAdapter::AttachResult NimbleController::AttachVirtualLink() {
+  const auto result = virtualBle.ConnectNextPeer();
+  if (result == InfiniSim::Ble::VirtualBleAdapter::AttachResult::Attached) {
+    bleController.Connect();
+    PublishVirtualDiagnostics();
+  }
+  return result;
+}
+
+InfiniSim::Ble::VirtualBleAdapter::AttachResult NimbleController::ForceAttachVirtualLink() {
+  DetachVirtualLink();
+  return AttachVirtualLink();
+}
+
+void NimbleController::RunDisconnectCleanup() {
+  scheduleService.OnDisconnect();
+  taskService.OnDisconnect();
+  dfuService.Reset();
+}
+
+void NimbleController::DetachVirtualLink() {
+  if (!virtualBle.Connected()) {
+    return;
+  }
+  RunDisconnectCleanup();
+  virtualBle.Disconnect();
+  bleController.Disconnect();
+  PublishVirtualDiagnostics();
+}
+
+void NimbleController::AdvanceVirtualPolicyTime(uint32_t milliseconds) {
+  virtualBle.AdvanceTime(milliseconds);
+  DrainVirtualPolicy();
+}
+
+void NimbleController::DrainVirtualPolicy() {
+  virtualBle.Drain();
+  if (virtualBle.ConsumeTerminationRequest()) {
+    DetachVirtualLink();
+  }
+  PublishVirtualDiagnostics();
+}
+
+void NimbleController::ResetVirtualBle(bool removePersistentFile) {
+  DetachVirtualLink();
+  virtualBle.Reset(removePersistentFile);
+  bleController.Disconnect();
+  PublishVirtualDiagnostics();
+}
+
+void NimbleController::RebootVirtualBle() {
+  DetachVirtualLink();
+  virtualBle.Reboot();
+  bleController.Disconnect();
+  PublishVirtualDiagnostics();
+}
+
+void NimbleController::PersistBondStore() {
+  DrainVirtualPolicy();
+}
+
+void NimbleController::RequestForgetAllBonds() {
+  DetachVirtualLink();
+  const uint32_t writesBefore = virtualBle.PersistenceDiagnostics().writeSuccesses;
+  virtualBle.ForgetAllBonds();
+  virtualBle.AdvanceTime(Pinetime::Controllers::BondPersistenceCoordinator::CriticalSettleMs);
+  if (virtualBle.PersistenceDiagnostics().writeSuccesses > writesBefore) {
+    systemTask.PushMessage(Pinetime::System::Messages::BondForgetAllCompleted);
+  }
+  PublishVirtualDiagnostics();
+}
+
+CompanionManagementStatus NimbleController::GetCompanionStatus() const {
+  return virtualBle.CompanionStatus();
+}
+
+bool NimbleController::IsVirtualLinkConnected() const {
+  return virtualBle.Connected();
+}
+
+bool NimbleController::IsVirtualLinkAuthenticated() const {
+  return virtualBle.Authenticated();
+}
+
+void NimbleController::PublishVirtualDiagnostics() {
+  const auto state = virtualBle.Query();
+  bleController.RadioDiagnostics(state.desired,
+                                 state.actual,
+                                 state.lastStartResult,
+                                 state.lastStopResult,
+                                 state.lastTerminateResult,
+                                 state.retryCount);
+  bleController.BondDiagnostics(state.persistence);
+  bleController.CompanionStatus(GetCompanionStatus());
 }
 
 // void NimbleController::PersistBond(struct ble_gap_conn_desc& desc) {

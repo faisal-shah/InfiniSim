@@ -38,14 +38,18 @@
 //  30     Task Sync Command     000a0001    write -> TaskService::OnCommand
 //  31     Task Digest           000a0002    read  -> TaskService::OnCommand
 //  32     Task Read             000a0003    write (select index) / read (record)
+//  33     Companion Status      000b0001    public read
+//  34     Companion Verify      000b0002    authenticated read
 //
-// Single client at a time: a new connection replaces the previous one, which is
-// closed. Polled from the SDL main loop (same thread as the keyboard injectors,
-// so calling the GATT handlers directly is safe).
+// Single client at a time: additional clients receive a busy frame and are
+// closed without disturbing the incumbent. The loopback-only BLE test-control
+// endpoint is the only path that may explicitly force replacement.
 
 #include <cstdint>
 #include <cstddef>
 #include <functional>
+#include "generated/CompanionProtocol.h"
+#include "ble/VirtualClientLifecycle.h"
 
 struct ble_gatt_access_ctxt;
 
@@ -73,45 +77,11 @@ public:
 
   bool Start(uint16_t port);
   void Poll(); // call every main-loop iteration; non-blocking
+  void ForceDisconnectClient();
+  bool HasClient() const;
 
 private:
-  enum class CharId : uint8_t {
-    ScheduleSync = 0,
-    ScheduleDigest = 1,
-    CurrentTime = 2,
-    NewAlert = 3,
-    Battery = 4,
-    EventRead = 5,
-    PrayerSettings = 6,
-    BeaconKey = 7,
-    BeaconControl = 8,
-    MultiAlarm = 9,
-    DfuControl = 10, // 0x1531 write + notify (DFU control point)
-    DfuPacket = 11, // 0x1532 write-without-response (DFU firmware/init/size data)
-    FsTransfer = 12, // adaf0200 write + notify (BLE filesystem)
-    FirmwareRevision = 13, // 0x2A26 read (firmware version string)
-    Weather = 14, // 00050001 write (SimpleWeatherService: current + forecast)
-    StepCount = 15, // 00030001 read (MotionService: today's cumulative steps)
-    StepCountYesterday = 16, // 00030003 read (MotionService: yesterday's total)
-    // MusicService writes (000000XX chars; firmware char byte = 0x02 + (id - 17)).
-    MusicStatus = 17, // 00000002 write (1B playing)
-    MusicArtist = 18, // 00000003 write (UTF-8)
-    MusicTrack = 19, // 00000004 write (UTF-8)
-    MusicAlbum = 20, // 00000005 write (UTF-8)
-    MusicPosition = 21, // 00000006 write (u32 BE seconds)
-    MusicTotalLength = 22, // 00000007 write (u32 BE seconds)
-    MusicTrackNumber = 23, // 00000008 write (u32 BE)
-    MusicTrackTotal = 24, // 00000009 write (u32 BE)
-    MusicPlaybackSpeed = 25, // 0000000a write (u32 BE, speed x100)
-    MusicRepeat = 26, // 0000000b write (1B)
-    MusicShuffle = 27, // 0000000c write (1B)
-    // Notify-only sources (watch -> phone), tagged by attribute handle.
-    MusicEvent = 28, // 00000001 notify (1B event: open/play/pause/next/prev/vol)
-    CallEvent = 29, // 00020001 notify (1B: 0=reject 1=accept 2=mute)
-    TasksSync = 30, // 000a0001 write -> TaskService::OnCommand (Begin/record/Commit/Abort/SetStreak)
-    TasksDigest = 31, // 000a0002 read  -> [protoVer][cap][count][taskVersion u32][streak u16]
-    TaskRead = 32, // 000a0003 write (select index) / read (31-byte record)
-  };
+  using CharId = SimCompanionProtocol::BridgeChar;
 
   // Response payloads are assembled into a fixed stack buffer of this size; the
   // capacity is handed to os_mbuf_append so an over-long service read is
@@ -141,7 +111,9 @@ private:
   void SendResponse(uint8_t status, const uint8_t* payload, uint16_t len);
   void SendNotification(uint8_t charId, const uint8_t* payload, uint16_t len);
   void DrainNotifications();
-  void CloseClient();
+  void CloseClient(bool detachVirtualLink = true);
+  bool AttachClient(int incoming);
+  static void SendBusyAndClose(int incoming);
 
   Pinetime::System::SystemTask& systemTask;
   Pinetime::Controllers::DateTime& dateTimeController;
@@ -151,6 +123,7 @@ private:
 
   int listenFd = -1;
   int clientFd = -1;
+  InfiniSim::Ble::VirtualClientLifecycle clientLifecycle;
   uint8_t rxBuffer[512];
   size_t rxLen = 0;
 };

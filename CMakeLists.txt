@@ -10,6 +10,26 @@ if(NOT EXISTS ${InfiniTime_DIR}/src/libs/lvgl)
   message(FATAL_ERROR "Can't access folder '${InfiniTime_DIR}/src/libs/lvgl'. Try `git submodule update --init --recursive` to initialize the git submodule of lvgl inside InfiniTime")
 endif()
 
+set(INFINITIME_FAMILY_REQUIRED_FILES
+  protocol/companion.json
+  src/components/ble/BleRadioStateMachine.cpp
+  src/components/ble/BondRegistry.cpp
+  src/components/ble/BondStorePolicy.cpp
+  src/components/ble/BondStoreCodec.cpp
+  src/components/ble/BondPersistenceCoordinator.cpp
+  src/components/ble/CompanionManagementStatus.h
+  src/components/ble/CompanionManagementStatus.cpp
+  src/components/ble/CompanionManagementService.h
+  src/components/ble/CompanionManagementService.cpp
+)
+foreach(required_file IN LISTS INFINITIME_FAMILY_REQUIRED_FILES)
+  if(NOT EXISTS "${InfiniTime_DIR}/${required_file}")
+    message(FATAL_ERROR
+      "InfiniTime_DIR='${InfiniTime_DIR}' is not a family-feature tree: missing ${required_file}. "
+      "Use the faisal-shah/InfiniTime family-features branch.")
+  endif()
+endforeach()
+
 # try to extract the PineTime project version
 file(READ "${InfiniTime_DIR}/CMakeLists.txt" main_cmake)
 string(REGEX MATCH "project\\(pinetime VERSION ([0-9]*\.[0-9]*\.[0-9]*)" _ ${main_cmake})
@@ -123,6 +143,38 @@ find_package(SDL2 REQUIRED)
 message(STATUS "Found SDL2 version ${SDL2_VERSION}")
 target_link_libraries(sim-base PUBLIC SDL2::SDL2)
 
+# Compile the portable BLE policy directly from the selected InfiniTime tree.
+# The simulator owns only deterministic ports around these classes; it does not
+# carry a second radio, bond, or persistence policy implementation.
+add_library(infinitime-ble-portable STATIC
+  ${InfiniTime_DIR}/src/components/ble/BleRadioStateMachine.cpp
+  ${InfiniTime_DIR}/src/components/ble/BondRegistry.cpp
+  ${InfiniTime_DIR}/src/components/ble/BondStorePolicy.cpp
+  ${InfiniTime_DIR}/src/components/ble/BondStoreCodec.cpp
+  ${InfiniTime_DIR}/src/components/ble/BondPersistenceCoordinator.cpp
+  ${InfiniTime_DIR}/src/components/ble/CompanionManagementStatus.cpp
+)
+target_include_directories(infinitime-ble-portable PUBLIC "${InfiniTime_DIR}/src")
+target_compile_features(infinitime-ble-portable PUBLIC cxx_std_20)
+
+add_library(infinisim-ble-adapters STATIC
+  sim/ble/VirtualBleAdapter.cpp
+  sim/ble/VirtualBleControlProtocol.cpp
+)
+target_include_directories(infinisim-ble-adapters PUBLIC
+  "${CMAKE_CURRENT_SOURCE_DIR}/sim"
+  "${InfiniTime_DIR}/src"
+)
+target_link_libraries(infinisim-ble-adapters PUBLIC infinitime-ble-portable)
+target_compile_features(infinisim-ble-adapters PUBLIC cxx_std_20)
+
+file(SHA256 "${InfiniTime_DIR}/protocol/companion.json" COMPANION_MANIFEST_SHA256)
+file(READ "${CMAKE_CURRENT_SOURCE_DIR}/sim/generated/CompanionProtocolMetadata.h" COMPANION_SIM_METADATA)
+string(FIND "${COMPANION_SIM_METADATA}" "${COMPANION_MANIFEST_SHA256}" COMPANION_METADATA_DIGEST_OFFSET)
+if(COMPANION_METADATA_DIGEST_OFFSET EQUAL -1)
+  message(FATAL_ERROR "sim/generated/CompanionProtocolMetadata.h is stale for ${InfiniTime_DIR}/protocol/companion.json")
+endif()
+
 set(MONITOR_ZOOM 1 CACHE STRING "Scale simulator window by this factor")
 if(MONITOR_ZOOM MATCHES "^[0-9]\.?[0-9]*")
   message(STATUS "Using MONITOR_ZOOM=${MONITOR_ZOOM}")
@@ -144,6 +196,8 @@ target_sources(infinisim PUBLIC
   sim/displayapp/LvglGuard.cpp
   sim/gatt_bridge.h
   sim/gatt_bridge.cpp
+  ${InfiniTime_DIR}/src/components/ble/CompanionManagementService.h
+  ${InfiniTime_DIR}/src/components/ble/CompanionManagementService.cpp
   sim/components/brightness/BrightnessController.h
   sim/components/brightness/BrightnessController.cpp
   sim/components/firmwarevalidator/FirmwareValidator.h
@@ -163,7 +217,16 @@ target_sources(infinisim PUBLIC
   sim/heartratetask/HeartRateTask.h
   sim/heartratetask/HeartRateTask.cpp
 )
-target_link_libraries(infinisim PUBLIC sim-base)
+target_link_libraries(infinisim PUBLIC sim-base infinitime-ble-portable infinisim-ble-adapters)
+
+option(ENABLE_BLE_TEST_CONTROL "Build the loopback-only virtual BLE test-control endpoint" ON)
+if(ENABLE_BLE_TEST_CONTROL)
+  target_sources(infinisim PRIVATE
+    sim/ble/VirtualBleControlServer.h
+    sim/ble/VirtualBleControlServer.cpp
+  )
+  target_compile_definitions(infinisim PRIVATE INFINISIM_ENABLE_BLE_TEST_CONTROL=1)
+endif()
 
 # add Screens, fonts and icons with a globbing expression,
 # to enable easier CI test-runs for PRs adding new Screens/Fonts/Icons
@@ -384,6 +447,32 @@ add_subdirectory(img)
 add_dependencies(infinisim infinisim_img_background)
 
 install(TARGETS infinisim DESTINATION bin)
+
+include(CTest)
+if(BUILD_TESTING)
+  add_executable(infinisim-ble-adapters-test
+    tests/BleAdaptersTest.cpp
+  )
+  target_include_directories(infinisim-ble-adapters-test PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/sim"
+    "${InfiniTime_DIR}/src"
+  )
+  target_link_libraries(infinisim-ble-adapters-test PRIVATE infinisim-ble-adapters)
+  target_compile_features(infinisim-ble-adapters-test PRIVATE cxx_std_20)
+  add_test(NAME infinisim-ble-adapters COMMAND infinisim-ble-adapters-test)
+  set_tests_properties(infinisim-ble-adapters PROPERTIES
+    WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
+  )
+  if(ENABLE_BLE_TEST_CONTROL)
+    find_package(PythonInterp 3 REQUIRED)
+    add_test(NAME infinisim-gatt-bridge-smoke
+      COMMAND "${PYTHON_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/GattBridgeSmoke.py" "$<TARGET_FILE:infinisim>"
+    )
+    set_tests_properties(infinisim-gatt-bridge-smoke PROPERTIES
+      WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
+    )
+  endif()
+endif()
 
 # helper library to manipulate littlefs raw image
 add_executable(littlefs-do

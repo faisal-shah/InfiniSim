@@ -12,6 +12,7 @@
 
 #include "host/ble_gatt.h"
 #include "host/ble_uuid.h"
+#include "ble/VirtualGattAccessPolicy.h"
 #include "components/ble/ScheduleService.h"
 #include "components/ble/TaskService.h"
 #include "components/ble/PrayerService.h"
@@ -42,8 +43,9 @@ namespace {
     // capacity: bytes available at `data` for a read to append into (0 for
     // writes, which never append). os_mbuf_append bounds-checks against it.
     FakeGattAccess(uint8_t op, uint8_t charIdByte, uint8_t* data, uint16_t len, uint8_t serviceByte = 0x06, uint8_t capacity = 0) {
-      uuid = ble_uuid128_t {.u = {.type = BLE_UUID_TYPE_128},
-                            .value = {0xd0, 0x42, 0x19, 0x3a, 0x3b, 0x43, 0x23, 0x8e, 0xfe, 0x48, 0xfc, 0x78, charIdByte, 0x00, serviceByte, 0x00}};
+      uuid = ble_uuid128_t {
+        .u = {.type = BLE_UUID_TYPE_128},
+        .value = {0xd0, 0x42, 0x19, 0x3a, 0x3b, 0x43, 0x23, 0x8e, 0xfe, 0x48, 0xfc, 0x78, charIdByte, 0x00, serviceByte, 0x00}};
       chrDef.uuid = &uuid.u;
       buffer.om_data = data;
       buffer.om_len = op == BLE_GATT_ACCESS_OP_WRITE_CHR ? len : 0;
@@ -102,19 +104,47 @@ bool GattBridge::Start(uint16_t port) {
   return true;
 }
 
-void GattBridge::CloseClient() {
+void GattBridge::CloseClient(bool detachVirtualLink) {
   if (clientFd >= 0) {
+    clientLifecycle.Detach(clientFd);
     close(clientFd);
     clientFd = -1;
     rxLen = 0;
     SimNotify::Clear(); // drop any pending notifications from the closed link
-    // A dropped companion connection aborts any open sync transaction, exactly
-    // like a BLE disconnect. Also drop the fake "connected" state so guarded
-    // notifiers stop emitting into the void.
-    bleController.Disconnect();
-    systemTask.nimble().schedule().OnDisconnect();
-    systemTask.nimble().tasks().OnDisconnect();
+    if (detachVirtualLink) {
+      systemTask.nimble().DetachVirtualLink();
+    }
   }
+}
+
+bool GattBridge::AttachClient(int incoming) {
+  if (clientLifecycle.TryAttach(incoming) == InfiniSim::Ble::VirtualClientLifecycle::AttachResult::Busy) {
+    return false;
+  }
+  const auto attached = systemTask.nimble().AttachVirtualLink();
+  if (attached != InfiniSim::Ble::VirtualBleAdapter::AttachResult::Attached) {
+    clientLifecycle.Detach(incoming);
+    return false;
+  }
+  clientFd = incoming;
+  const int one = 1;
+  setsockopt(clientFd, IPPROTO_TCP, TCP_NODELAY, &one, sizeof(one));
+  rxLen = 0;
+  return true;
+}
+
+void GattBridge::SendBusyAndClose(int incoming) {
+  static constexpr uint8_t BusyResponse[] {0xfd, 0x00, 0x00};
+  send(incoming, BusyResponse, sizeof(BusyResponse), MSG_NOSIGNAL);
+  close(incoming);
+}
+
+void GattBridge::ForceDisconnectClient() {
+  CloseClient();
+}
+
+bool GattBridge::HasClient() const {
+  return clientFd >= 0;
 }
 
 void GattBridge::Poll() {
@@ -122,26 +152,22 @@ void GattBridge::Poll() {
     return;
   }
 
-  // Drain the whole accept queue each poll, keeping only the newest connection
-  // (a new connection supersedes the old link, like a BLE reconnect). Accepting
-  // just one per poll let concurrent connectors pile up in the backlog as
-  // half-closed CLOSE-WAIT sockets and eventually starve the bridge.
+  // Drain the accept queue, but preserve the incumbent. The firmware policy has
+  // one active connection; a second transport client is explicitly busy.
   for (;;) {
     const int incoming = accept4(listenFd, nullptr, nullptr, SOCK_NONBLOCK);
     if (incoming < 0) {
       break;
     }
-    CloseClient();
-    clientFd = incoming;
-    const int one = 1;
-    setsockopt(clientFd, IPPROTO_TCP, TCP_NODELAY, &one, sizeof(one));
-    rxLen = 0;
-    // Report "connected" to the firmware while a bridge client is attached, so
-    // guarded notifiers (music/call events via NimbleController::connHandle)
-    // actually emit instead of silently dropping.
-    bleController.Connect();
+    if (!AttachClient(incoming)) {
+      SendBusyAndClose(incoming);
+    }
   }
   if (clientFd < 0) {
+    return;
+  }
+  if (!systemTask.nimble().IsVirtualLinkConnected()) {
+    CloseClient(false);
     return;
   }
 
@@ -204,8 +230,7 @@ void GattBridge::SendNotification(uint8_t charId, const uint8_t* payload, uint16
   header[0] = 0xF0;
   header[1] = charId;
   std::memcpy(&header[2], &len, sizeof(len));
-  if (send(clientFd, header, sizeof(header), MSG_NOSIGNAL) < 0 ||
-      (len > 0 && send(clientFd, payload, len, MSG_NOSIGNAL) < 0)) {
+  if (send(clientFd, header, sizeof(header), MSG_NOSIGNAL) < 0 || (len > 0 && send(clientFd, payload, len, MSG_NOSIGNAL) < 0)) {
     CloseClient();
   }
 }
@@ -249,8 +274,7 @@ uint8_t GattBridge::Forward(Access mode,
                             uint16_t& outLen) {
   const bool write = op == 0;
   const bool read = op == 1;
-  const bool ok =
-    (mode == Access::Write && write) || (mode == Access::Read && read) || (mode == Access::WriteRead && (write || read));
+  const bool ok = (mode == Access::Write && write) || (mode == Access::Read && read) || (mode == Access::WriteRead && (write || read));
   if (!ok) {
     return 0xFE;
   }
@@ -272,42 +296,179 @@ uint8_t GattBridge::Forward(Access mode,
 
 uint8_t GattBridge::Dispatch(uint8_t charId, uint8_t op, const uint8_t* payload, uint16_t len, uint8_t* out, uint16_t& outLen) {
   outLen = 0;
+  const uint8_t authorization =
+    InfiniSim::Ble::VirtualGattAccessPolicy::Authorize(charId, op, systemTask.nimble().IsVirtualLinkAuthenticated());
+  if (authorization != 0) {
+    return authorization;
+  }
   switch (static_cast<CharId>(charId)) {
     // Custom fork services — one line each; Forward builds the fake access,
     // validates the op, routes to the service, and (for reads) captures the
     // response length. Service byte: schedule 0x06, prayer 0x07, beacon 0x08,
     // multi-alarm 0x09, task 0x0a.
     case CharId::ScheduleSync:
-      return Forward(Access::Write, op, 0x01, 0x06, [&](ble_gatt_access_ctxt* c) { return systemTask.nimble().schedule().OnCommand(c); }, payload, len, out, outLen);
+      return Forward(
+        Access::Write,
+        op,
+        0x01,
+        0x06,
+        [&](ble_gatt_access_ctxt* c) {
+          return systemTask.nimble().schedule().OnCommand(c);
+        },
+        payload,
+        len,
+        out,
+        outLen);
     case CharId::ScheduleDigest:
-      return Forward(Access::Read, op, 0x02, 0x06, [&](ble_gatt_access_ctxt* c) { return systemTask.nimble().schedule().OnCommand(c); }, payload, len, out, outLen);
+      return Forward(
+        Access::Read,
+        op,
+        0x02,
+        0x06,
+        [&](ble_gatt_access_ctxt* c) {
+          return systemTask.nimble().schedule().OnCommand(c);
+        },
+        payload,
+        len,
+        out,
+        outLen);
     case CharId::EventRead:
-      return Forward(Access::WriteRead, op, 0x03, 0x06, [&](ble_gatt_access_ctxt* c) { return systemTask.nimble().schedule().OnCommand(c); }, payload, len, out, outLen);
+      return Forward(
+        Access::WriteRead,
+        op,
+        0x03,
+        0x06,
+        [&](ble_gatt_access_ctxt* c) {
+          return systemTask.nimble().schedule().OnCommand(c);
+        },
+        payload,
+        len,
+        out,
+        outLen);
 
     case CharId::TasksSync:
-      return Forward(Access::Write, op, 0x01, 0x0a, [&](ble_gatt_access_ctxt* c) { return systemTask.nimble().tasks().OnCommand(c); }, payload, len, out, outLen);
+      return Forward(
+        Access::Write,
+        op,
+        0x01,
+        0x0a,
+        [&](ble_gatt_access_ctxt* c) {
+          return systemTask.nimble().tasks().OnCommand(c);
+        },
+        payload,
+        len,
+        out,
+        outLen);
     case CharId::TasksDigest:
-      return Forward(Access::Read, op, 0x02, 0x0a, [&](ble_gatt_access_ctxt* c) { return systemTask.nimble().tasks().OnCommand(c); }, payload, len, out, outLen);
+      return Forward(
+        Access::Read,
+        op,
+        0x02,
+        0x0a,
+        [&](ble_gatt_access_ctxt* c) {
+          return systemTask.nimble().tasks().OnCommand(c);
+        },
+        payload,
+        len,
+        out,
+        outLen);
     case CharId::TaskRead:
-      return Forward(Access::WriteRead, op, 0x03, 0x0a, [&](ble_gatt_access_ctxt* c) { return systemTask.nimble().tasks().OnCommand(c); }, payload, len, out, outLen);
+      return Forward(
+        Access::WriteRead,
+        op,
+        0x03,
+        0x0a,
+        [&](ble_gatt_access_ctxt* c) {
+          return systemTask.nimble().tasks().OnCommand(c);
+        },
+        payload,
+        len,
+        out,
+        outLen);
 
     case CharId::PrayerSettings:
-      return Forward(Access::WriteRead, op, 0x01, 0x07, [&](ble_gatt_access_ctxt* c) { return systemTask.nimble().prayer().OnCommand(c); }, payload, len, out, outLen);
+      return Forward(
+        Access::WriteRead,
+        op,
+        0x01,
+        0x07,
+        [&](ble_gatt_access_ctxt* c) {
+          return systemTask.nimble().prayer().OnCommand(c);
+        },
+        payload,
+        len,
+        out,
+        outLen);
 
     case CharId::BeaconKey:
-      return Forward(Access::WriteRead, op, 0x01, 0x08, [&](ble_gatt_access_ctxt* c) { return systemTask.nimble().beacon().OnCommand(c); }, payload, len, out, outLen);
+      return Forward(
+        Access::WriteRead,
+        op,
+        0x01,
+        0x08,
+        [&](ble_gatt_access_ctxt* c) {
+          return systemTask.nimble().beacon().OnCommand(c);
+        },
+        payload,
+        len,
+        out,
+        outLen);
     case CharId::BeaconControl:
-      return Forward(Access::Write, op, 0x02, 0x08, [&](ble_gatt_access_ctxt* c) { return systemTask.nimble().beacon().OnCommand(c); }, payload, len, out, outLen);
+      return Forward(
+        Access::Write,
+        op,
+        0x02,
+        0x08,
+        [&](ble_gatt_access_ctxt* c) {
+          return systemTask.nimble().beacon().OnCommand(c);
+        },
+        payload,
+        len,
+        out,
+        outLen);
 
     case CharId::MultiAlarm:
-      return Forward(Access::WriteRead, op, 0x01, 0x09, [&](ble_gatt_access_ctxt* c) { return systemTask.nimble().multiAlarm().OnCommand(c); }, payload, len, out, outLen);
+      return Forward(
+        Access::WriteRead,
+        op,
+        0x01,
+        0x09,
+        [&](ble_gatt_access_ctxt* c) {
+          return systemTask.nimble().multiAlarm().OnCommand(c);
+        },
+        payload,
+        len,
+        out,
+        outLen);
 
     // AlertNotificationService routes on om_data only, so the UUID is irrelevant.
     case CharId::NewAlert:
-      return Forward(Access::Write, op, 0x00, 0x06, [&](ble_gatt_access_ctxt* c) { return systemTask.nimble().alertService().OnAlert(c); }, payload, len, out, outLen);
+      return Forward(
+        Access::Write,
+        op,
+        0x00,
+        0x06,
+        [&](ble_gatt_access_ctxt* c) {
+          return systemTask.nimble().alertService().OnAlert(c);
+        },
+        payload,
+        len,
+        out,
+        outLen);
     // SimpleWeatherService likewise routes on om_data only.
     case CharId::Weather:
-      return Forward(Access::Write, op, 0x00, 0x06, [&](ble_gatt_access_ctxt* c) { return systemTask.nimble().weather().OnCommand(c); }, payload, len, out, outLen);
+      return Forward(
+        Access::Write,
+        op,
+        0x00,
+        0x06,
+        [&](ble_gatt_access_ctxt* c) {
+          return systemTask.nimble().weather().OnCommand(c);
+        },
+        payload,
+        len,
+        out,
+        outLen);
 
     case CharId::CurrentTime: {
       // Standard CTS 0x2A2B layout, same parsing as CurrentTimeService.
@@ -329,7 +490,7 @@ uint8_t GattBridge::Dispatch(uint8_t charId, uint8_t op, const uint8_t* payload,
       return 0;
     }
 
-    case CharId::StepCount: {
+    case CharId::Steps: {
       // MotionService step-count read: today's cumulative steps as uint32 LE.
       if (op != 1) {
         return 0xFE;
@@ -343,7 +504,7 @@ uint8_t GattBridge::Dispatch(uint8_t charId, uint8_t op, const uint8_t* payload,
       return 0;
     }
 
-    case CharId::StepCountYesterday: {
+    case CharId::StepsYesterday: {
       // MotionService yesterday-steps read: uint32 LE.
       if (op != 1) {
         return 0xFE;
@@ -368,15 +529,23 @@ uint8_t GattBridge::Dispatch(uint8_t charId, uint8_t op, const uint8_t* payload,
     case CharId::MusicPlaybackSpeed:
     case CharId::MusicRepeat:
     case CharId::MusicShuffle: {
-      // MusicService metadata writes. OnCommand routes by characteristic UUID;
-      // FakeGattAccess carries it (music char byte 0x02..0x0c at value[12],
-      // service byte 0x00 at value[14]).
-      if (op != 0) {
-        return 0xFE;
-      }
+      // Route both advertised operations through the real firmware callback.
+      // Current MusicService accepts reads but appends no bytes, so an honest
+      // simulator returns a successful empty payload rather than inventing a
+      // readback representation.
       const uint8_t chrByte = 0x02 + (charId - static_cast<uint8_t>(CharId::MusicStatus));
-      FakeGattAccess access(BLE_GATT_ACCESS_OP_WRITE_CHR, chrByte, const_cast<uint8_t*>(payload), len, 0x00);
-      return static_cast<uint8_t>(systemTask.nimble().music().OnCommand(&access.ctxt));
+      return Forward(
+        Access::WriteRead,
+        op,
+        chrByte,
+        0x00,
+        [&](ble_gatt_access_ctxt* context) {
+          return systemTask.nimble().music().OnCommand(context);
+        },
+        payload,
+        len,
+        out,
+        outLen);
     }
 
     case CharId::DfuControl: {
@@ -406,15 +575,39 @@ uint8_t GattBridge::Dispatch(uint8_t charId, uint8_t op, const uint8_t* payload,
     }
 
     case CharId::FirmwareRevision: {
-      if (op != 1) {
-        return 0xFE;
-      }
       const char* v = Pinetime::Version::VersionString();
       const size_t n = std::strlen(v);
       std::memcpy(out, v, n);
       outLen = static_cast<uint16_t>(n);
       return 0;
     }
+
+    case CharId::CompanionStatus:
+      return Forward(
+        Access::Read,
+        op,
+        0x01,
+        0x0b,
+        [&](ble_gatt_access_ctxt* context) {
+          return systemTask.nimble().companionManagement().OnAccess(0x0b01, context);
+        },
+        payload,
+        len,
+        out,
+        outLen);
+    case CharId::CompanionVerify:
+      return Forward(
+        Access::Read,
+        op,
+        0x02,
+        0x0b,
+        [&](ble_gatt_access_ctxt* context) {
+          return systemTask.nimble().companionManagement().OnAccess(0x0b02, context);
+        },
+        payload,
+        len,
+        out,
+        outLen);
   }
   return 0xFF; // unknown characteristic
 }
@@ -426,8 +619,7 @@ void GattBridge::SendResponse(uint8_t status, const uint8_t* payload, uint16_t l
   // MSG_NOSIGNAL is belt-and-suspenders alongside the SIG_IGN in Start(): a
   // vanished client yields EPIPE, which we treat as an orderly disconnect
   // rather than crashing the simulator.
-  if (send(clientFd, header, sizeof(header), MSG_NOSIGNAL) < 0 ||
-      (len > 0 && send(clientFd, payload, len, MSG_NOSIGNAL) < 0)) {
+  if (send(clientFd, header, sizeof(header), MSG_NOSIGNAL) < 0 || (len > 0 && send(clientFd, payload, len, MSG_NOSIGNAL) < 0)) {
     CloseClient();
   }
 }

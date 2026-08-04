@@ -57,3 +57,4 @@ package-lock.json
 package.json
 node_modules/
 spiNorFlash.raw
+infinisim-ble-bonds.bin.next

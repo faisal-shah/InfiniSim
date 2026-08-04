@@ -1,6 +1,6 @@
-# [InfiniSim](https://github.com/InfiniTimeOrg/InfiniSim)
+# [InfiniSim](https://github.com/faisal-shah/InfiniSim)
 
-[![Build InfiniSim LVGL Simulator](https://github.com/InfiniTimeOrg/InfiniSim/actions/workflows/lv_sim.yml/badge.svg)](https://github.com/InfiniTimeOrg/InfiniSim/actions/workflows/lv_sim.yml)
+[![Build InfiniSim LVGL Simulator](https://github.com/faisal-shah/InfiniSim/actions/workflows/lv_sim.yml/badge.svg)](https://github.com/faisal-shah/InfiniSim/actions/workflows/lv_sim.yml)
 
 Simulator for [InfiniTime](https://github.com/InfiniTimeOrg/InfiniTime) project.
 
@@ -11,16 +11,15 @@ For a history on how this simulator started and the challenges on its way visit 
 
 ## Get the Sources
 
-Clone this repository and tell `git` to recursively download the submodules as well
+Clone InfiniSim, initialize its display-driver submodule, and check out the
+family InfiniTime tree:
 
 ```sh
-git clone --recursive https://github.com/InfiniTimeOrg/InfiniSim.git
-```
-
-If you've already cloned the repository without the submodules (or you want to update them to the latest checked in version) run the following command:
-
-```sh
-git submodule update --init --recursive
+git clone https://github.com/faisal-shah/InfiniSim.git
+cd InfiniSim
+git submodule update --init lv_drivers
+git clone --recursive --branch family-features \
+  https://github.com/faisal-shah/InfiniTime.git ../InfiniTime
 ```
 
 ## Build dependencies
@@ -90,15 +89,16 @@ sudo zypper install python311-Pillow
 In the most basic configuration tell cmake to configure the project and build it with the following two commands:
 
 ```sh
-cmake -S . -B build
+cmake -S . -B build -DInfiniTime_DIR=../InfiniTime
 cmake --build build -j4
 ```
 
 The following configuration settings can be added to the first `cmake -S . -B build` call
 
-- `-DInfiniTime_DIR=InfiniTime`: a full path to an existing InfiniTime repository checked out.
-  Inside that directory the `src/libs/lvgl` submodule must be checked out as well.
-  The default value points to the InfiniTime submodule in this repository.
+- `-DInfiniTime_DIR=../InfiniTime`: path to the
+  `faisal-shah/InfiniTime` `family-features` checkout. Its recursive submodules
+  must be initialized. CMake rejects trees without the generated companion
+  manifest and portable BLE policy sources.
 - `-DMONITOR_ZOOM=1`: scale simulator window by this factor
 - `-DBUILD_RESOURCES=ON`: enable/disable `resource.zip` creation, will be created in the `<build-dir>/resources` folder
 - `-DWITH_PNG=ON`: enable/disable the screenshot to `PNG` support.
@@ -109,6 +109,9 @@ The following configuration settings can be added to the first `cmake -S . -B bu
   Values must be fields from the enumeration `Pinetime::Applications::Apps` and must be separated by a comma.
   Ex: `-DENABLE_USERAPPS="Apps::Timer, Apps::Alarm"`.
   The default list of user applications will be selected if this variable is not set.
+- `-DENABLE_BLE_TEST_CONTROL=ON`: build the virtual BLE test-control endpoint.
+  The endpoint is available only when `--ble-control PORT` is passed at runtime
+  and binds to `127.0.0.1`.
 
 ### Build with Docker
 
@@ -130,8 +133,7 @@ The command to build the simulator using `podman` is:
 podman run --rm -it -v ${PWD}:/sources infinisim-build
 ```
 
-By default this builds the simulator using the InfiniTime files from the submodule in your `${PWD}`.
-If you want to use a different repository, the easiest way is to mount over the default submodule location in the container at `/sources/InfiniTime`:
+Mount the family InfiniTime checkout over `/sources/InfiniTime`:
 ```sh
 docker run --rm -it -v ${PWD}:/sources -v ${PWD}/../InfiniTime:/sources/InfiniTime --user $(id -u):$(id -g) infinisim-build
 ```
@@ -190,6 +192,84 @@ Using the keyboard the following events can be triggered:
 
 Additionally using the arrow keys the respective swipe gesture can be triggered.
 For example pressing the UP key triggers a `SwipeUp` gesture.
+
+## Portable BLE policy simulation
+
+InfiniSim compiles these files directly from `InfiniTime_DIR`:
+
+- `BleRadioStateMachine`
+- `BondRegistry`
+- `BondStorePolicy`
+- `BondStoreCodec`
+- `BondPersistenceCoordinator`
+- `CompanionManagementService`
+- `CompanionManagementStatus` encoder
+
+The simulator supplies deterministic virtual command, peer, store, filesystem,
+time, and event ports around that code. It does not link full NimBLE and does
+not simulate RF, SMP key exchange, controller scheduling, current, or power.
+Security records are opaque deterministic test fixtures.
+`sim/generated/CompanionProtocolMetadata.h` is generated from
+`protocol/companion.json`; CMake verifies its recorded manifest digest before
+compiling.
+
+| Behavior | Fidelity |
+|---|---|
+| Radio desired/actual transitions, retries, fast/slow policy | Real portable InfiniTime state machine |
+| Five retained peers, sixth-peer LRU, repeat replacement | Real portable InfiniTime bond policy |
+| Bond encoding, CRC validation, restore, dirty/write scheduling | Real portable InfiniTime codec/coordinator |
+| GATT bytes and firmware service callbacks | Real firmware service code over a TCP bridge |
+| Authentication decisions | Generated characteristic metadata plus injected virtual link security |
+| Advertising, connection, pairing | Virtual policy events only; no RF or SMP |
+| Flash and wake-lock reporting | Event/write/state proxies, not electrical measurements |
+
+The GATT bridge defaults each new transport connection to an explicitly
+prebonded, authenticated virtual test peer for companion-app compatibility.
+Test control can select unauthenticated or bonded-only peers. Protected
+characteristics return ATT error `0x05` unless the injected security state is
+authenticated; companion status (bridge ID 33) remains public. Bridge ID 34
+verifies only authenticated virtual links.
+
+Only one GATT bridge client is active. A second client receives the three-byte
+busy response `fd 00 00` and is closed without replacing the incumbent.
+Replacement requires an explicit test-control command.
+
+### Loopback BLE test control
+
+Start the simulator with separate data and control ports:
+
+```sh
+./build/infinisim --gatt-bridge 8080 --ble-control 8081
+```
+
+The control socket is newline-delimited UTF-8, bound only to
+`127.0.0.1`. Commands and tokens are case-sensitive. Each command returns one
+line beginning with `OK` or `ERR`.
+
+```text
+QUERY
+NEXT_PEER <type 0..3> <12 hex address> <UNAUTHENTICATED|BONDED|AUTHENTICATED> [REPLACE]
+CONNECT
+DISCONNECT
+FORCE_CONNECT
+FORCE_DISCONNECT
+GAP_RESULT <START|STOP|TERMINATE> <integer result> <SUCCESS|ALREADY_INACTIVE|ADVERTISING_ACTIVE|FAILED>
+ADVANCE <milliseconds>
+DRAIN
+STORE_FAILURE <NONE|READ|WRITE>
+POWER_CUT <NONE|BEFORE_REPLACE|AFTER_PARTIAL_STAGED_WRITE|AFTER_STAGED_WRITE>
+CCCD <u16 handle> <u16 flags>
+REBOOT
+RESET
+```
+
+`QUERY` reports virtual radio/link/security/bond state, coordinator boot and
+write state, GAP and host-policy event counts, successful flash writes/bytes,
+and the persistence wake-lock-duration proxy. `REBOOT` preserves and restores
+`infinisim-ble-bonds.bin`; `RESET` removes it. The named power cuts operate only
+at deterministic staged-write/replacement boundaries and never tear the live
+file. Companion status and verify call the
+selected InfiniTime tree's real management service and portable status encoder.
 
 ## Littlefs-do helper
 

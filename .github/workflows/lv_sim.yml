@@ -1,77 +1,100 @@
-# GitHub Actions Workflow to build Simulator for PineTime Smart Watch LVGL Interface
-
-# Name of this Workflow
 name: Build InfiniSim LVGL Simulator
 
-# When to run this Workflow...
 on:
-
-  # Run on all branches
   push:
-    branches: []
-
-  # Also run this Workflow when a Pull Request is created or updated in the "main" and "develop" Branch
   pull_request:
-    branches: [ main, develop ]
+  workflow_dispatch:
+    inputs:
+      infinitime_ref:
+        description: InfiniTime branch, tag, or full SHA to compile
+        required: true
+        default: family-features
+        type: string
 
-# Steps to run for the Workflow
+permissions:
+  contents: read
+
+env:
+  INFINITIME_REF: ${{ inputs.infinitime_ref || 'family-features' }}
+
 jobs:
   build:
-
-    # Run these steps on Ubuntu
     runs-on: ubuntu-latest
 
     steps:
-
-      #########################################################################################
-      # Download and Install Dependencies
-
-      - name: Install CMake SDL2 and libpng development package
+      - name: Install build dependencies
         run:  |
           sudo apt-get update -qq
-          sudo apt-get -y install cmake libsdl2-dev libpng-dev
-
-      - name: Install resource build dependencies
-        run:  |
-          sudo apt-get -y install --no-install-recommends python3-pil
+          sudo apt-get -y install --no-install-recommends \
+            cmake \
+            libsdl2-dev \
+            libpng-dev \
+            ninja-build \
+            python3-pil
 
       - name: Install lv_font_conv
-        run:
-          npm i -g lv_font_conv@1.5.2
-
-      #########################################################################################
-      # Checkout
+        run: npm i -g lv_font_conv@1.5.2
 
       - name: Checkout source files
         uses: actions/checkout@v4
         with:
+          ref: ${{ github.sha }}
+          path: family/InfiniSim
+
+      - name: Checkout InfiniSim runtime submodules
+        working-directory: family/InfiniSim
+        run: git submodule update --init lv_drivers
+
+      - name: Checkout family InfiniTime
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/InfiniTime
+          ref: ${{ env.INFINITIME_REF }}
+          path: family/InfiniTime
           submodules: recursive
 
-      #########################################################################################
-      # CMake
+      - name: Record selected revisions
+        run: |
+          {
+            echo "## Selected revisions"
+            echo
+            echo "| Repository | Requested ref | Resolved SHA |"
+            echo "|---|---|---|"
+            echo "| InfiniSim | event SHA | $(git -C family/InfiniSim rev-parse HEAD) |"
+            echo "| InfiniTime | \`$INFINITIME_REF\` | $(git -C family/InfiniTime rev-parse HEAD) |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Verify generated simulator contract
+        run: |
+          python3 family/InfiniTime/tools/generate_companion_protocol.py \
+            --workspace-root family \
+            --targets infinisim \
+            --check
 
       - name: CMake
         run:  |
-          cmake -G Ninja -S . -B build_lv_sim
-
-      #########################################################################################
-      # Build and Upload simulator
-
-      # For Debugging Builds: Remove "make" option "-j" for clearer output. Add "--trace" to see details.
-      # For Faster Builds: Add "make" option "-j"
+          cmake -G Ninja \
+            -S family/InfiniSim \
+            -B family/InfiniSim/build_lv_sim \
+            -DInfiniTime_DIR="${GITHUB_WORKSPACE}/family/InfiniTime"
 
       - name: Build simulator executable
+        run: cmake --build family/InfiniSim/build_lv_sim
+
+      - name: Run native tests
         run:  |
-          cmake --build build_lv_sim
+          ctest --test-dir family/InfiniSim/build_lv_sim \
+            --output-on-failure \
+            --output-junit ctest-junit.xml
 
       - name: Upload simulator executable
         uses: actions/upload-artifact@v4
         with:
           name: infinisim
-          path: build_lv_sim/infinisim
+          path: family/InfiniSim/build_lv_sim/infinisim
 
       - name: Upload littlefs-do executable
         uses: actions/upload-artifact@v4
         with:
           name: littlefs-do
-          path: build_lv_sim/littlefs-do
+          path: family/InfiniSim/build_lv_sim/littlefs-do

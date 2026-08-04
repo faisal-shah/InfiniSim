@@ -29,6 +29,9 @@
 #include "displayapp/InfiniTimeTheme.h"
 #include "displayapp/LvglGuard.h"
 #include "sim/gatt_bridge.h"
+#if defined(INFINISIM_ENABLE_BLE_TEST_CONTROL)
+  #include "ble/VirtualBleControlServer.h"
+#endif
 #include <drivers/Hrs3300.h>
 #include <drivers/Bma421.h>
 
@@ -764,9 +767,9 @@ public:
     } else if (key == 'N') {
       notificationManager.ClearNewNotificationFlag();
     } else if (key == 'b') {
-      bleController.Connect();
+      systemTask.nimble().AttachVirtualLink();
     } else if (key == 'B') {
-      bleController.Disconnect();
+      systemTask.nimble().DetachVirtualLink();
     } else if (key == 'v') {
       if (batteryController.percentRemaining >= 90) {
         batteryController.percentRemaining = 100;
@@ -1258,6 +1261,7 @@ int main(int argc, char** argv) {
   bool fw_status_window_visible = true;
   bool arg_help = false;
   long gatt_bridge_port = 0;
+  long ble_control_port = 0;
   for (int i = 1; i < argc; i++) {
     const std::string arg(argv[i]);
     if (arg == "--hide-status") {
@@ -1268,6 +1272,14 @@ int main(int argc, char** argv) {
         std::cout << "invalid --gatt-bridge port" << std::endl;
         return 1;
       }
+#if defined(INFINISIM_ENABLE_BLE_TEST_CONTROL)
+    } else if (arg == "--ble-control" && i + 1 < argc) {
+      ble_control_port = std::strtol(argv[++i], nullptr, 10);
+      if (ble_control_port <= 0 || ble_control_port > 65535) {
+        std::cout << "invalid --ble-control port" << std::endl;
+        return 1;
+      }
+#endif
     } else if (arg == "-h" || arg == "--help") {
       arg_help = true;
     } else {
@@ -1281,7 +1293,14 @@ int main(int argc, char** argv) {
     std::cout << "  -h, --help             show this help message and exit" << std::endl;
     std::cout << "      --hide-status      don't show simulator status window, so only lvgl window is open" << std::endl;
     std::cout << "      --gatt-bridge PORT expose watch characteristics on a local TCP port (see sim/gatt_bridge.h)" << std::endl;
+#if defined(INFINISIM_ENABLE_BLE_TEST_CONTROL)
+    std::cout << "      --ble-control PORT expose virtual BLE test control on loopback only" << std::endl;
+#endif
     return 0;
+  }
+  if (gatt_bridge_port != 0 && gatt_bridge_port == ble_control_port) {
+    std::cout << "--gatt-bridge and --ble-control ports must differ" << std::endl;
+    return 1;
   }
 
   /*Initialize LVGL*/
@@ -1296,6 +1315,9 @@ int main(int argc, char** argv) {
   Framework fw(fw_status_window_visible, 240, 240);
 
   GattBridge gattBridge(systemTask, dateTimeController, batteryController, motionController, bleController);
+#if defined(INFINISIM_ENABLE_BLE_TEST_CONTROL)
+  InfiniSim::Ble::VirtualBleControlServer bleControl(systemTask.nimble(), gattBridge);
+#endif
   if (gatt_bridge_port != 0) {
     // The GATT bridge is a dev/test-only link; enable OTA (DFU + filesystem) so
     // the harness can exercise firmware/resource updates without navigating the
@@ -1306,6 +1328,11 @@ int main(int argc, char** argv) {
       return 1;
     }
   }
+#if defined(INFINISIM_ENABLE_BLE_TEST_CONTROL)
+  if (ble_control_port != 0 && !bleControl.Start(static_cast<uint16_t>(ble_control_port))) {
+    return 1;
+  }
+#endif
 
   while (1) {
     fw.handle_keys(); // key event polling
@@ -1313,6 +1340,11 @@ int main(int argc, char** argv) {
     if (gatt_bridge_port != 0) {
       gattBridge.Poll();
     }
+#if defined(INFINISIM_ENABLE_BLE_TEST_CONTROL)
+    if (ble_control_port != 0) {
+      bleControl.Poll();
+    }
+#endif
     fw.refresh();
     usleep(LV_DISP_DEF_REFR_PERIOD * 1000);
   }
