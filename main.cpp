@@ -435,6 +435,9 @@ Pinetime::System::SystemTask systemTask(spi,
 
 // variable used in SystemTask.cpp Work loop
 std::chrono::time_point<std::chrono::system_clock, std::chrono::nanoseconds> NoInit_BackUpTime;
+// No no-init RAM on a host; the firmware keeps this across resets so the count
+// still means something after the reboot people perform to unstick the watch.
+uint16_t NoInit_AdvRecoveries = 0;
 
 class Framework {
 public:
