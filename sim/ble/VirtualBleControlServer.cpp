@@ -20,6 +20,8 @@ namespace {
         return "unknown";
       case BootState::Restored:
         return "restored";
+      case BootState::InitializingEmpty:
+        return "initializing_empty";
       case BootState::InitializedEmpty:
         return "initialized_empty";
       case BootState::Missing:

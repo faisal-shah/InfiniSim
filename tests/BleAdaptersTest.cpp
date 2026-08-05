@@ -117,6 +117,30 @@ int main() {
   }
 
   {
+    const std::string path = "infinisim-ble-initialization-failure-store.bin";
+    std::filesystem::remove(path);
+    std::filesystem::remove(path + ".next");
+    VirtualBleAdapter adapter(path);
+    adapter.SetStoreFailure(VirtualBleAdapter::StoreFailure::Write);
+    adapter.Initialize();
+    Check(adapter.Query().persistence.bootState == Pinetime::Controllers::BondPersistenceCoordinator::BootState::InitializingEmpty,
+          "failed first-format write leaves initialization visible");
+    Check((adapter.CompanionStatus().flags & Pinetime::Controllers::CompanionStatusFlag::FormatInitializationPending) != 0,
+          "failed first-format write exposes the format gate");
+    Check(adapter.Query().actual == VirtualBleAdapter::Radio::Mode::Off &&
+            adapter.Query().counters.gapStarts == 0,
+          "advertising stays off until first-format durability");
+    Check(adapter.ConnectNextPeer() == VirtualBleAdapter::AttachResult::Rejected,
+          "virtual peers cannot bypass the first-format radio gate");
+    adapter.SetStoreFailure(VirtualBleAdapter::StoreFailure::None);
+    adapter.AdvanceTime(Pinetime::Controllers::BondPersistenceCoordinator::FailureRetryBaseMs);
+    Check(adapter.Query().persistence.bootState == Pinetime::Controllers::BondPersistenceCoordinator::BootState::InitializedEmpty &&
+            adapter.Query().actual == VirtualBleAdapter::Radio::Mode::FastConnectable,
+          "successful retry releases fast advertising");
+    adapter.Reset(true);
+  }
+
+  {
     const std::string path = "infinisim-ble-radio-test-store.bin";
     VirtualBleAdapter adapter(path);
     adapter.Reset(true);

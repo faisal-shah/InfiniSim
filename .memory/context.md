@@ -27,6 +27,8 @@ InfiniTime source tree.
 - The control endpoint binds only to `127.0.0.1`.
 - Virtual security is injected state, never an SMP success claim.
 - Flash/wake-lock counters are software proxies only.
+- First-format persistence keeps virtual advertising off until the asynchronous
+  write succeeds, matching 2.0.1 hardware behavior.
 
 ## Key Decisions
 

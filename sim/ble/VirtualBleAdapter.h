@@ -173,6 +173,10 @@ namespace InfiniSim::Ble {
     bool retryScheduled = false;
     bool initialized = false;
     bool persistenceWritesEnabled = true;
+    bool formatInitializationPending = false;
+    bool formatInitializationLegacyReset = false;
+    uint64_t formatInitializationGeneration = 0;
+    Radio::DesiredMode requestedMode = Radio::DesiredMode::Connectable;
     bool virtualAdvertisingCommandActive = false;
     bool terminationRequested = false;
   };

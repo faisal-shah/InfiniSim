@@ -7,6 +7,8 @@
 - Fresh, missing, invalid, and reset stores have distinct expected behavior.
 - Two concurrent BlueZ/RF devices cannot be proven by this simulator.
 - `FindPythonInterp` is removed from modern CMake; use `FindPython3`.
+- Fresh-store simulation must preserve the UI-up/radio-gated asynchronous
+  initialization contract, not hide it behind a synchronous file write.
 
 ## Patterns
 

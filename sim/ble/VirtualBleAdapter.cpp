@@ -63,6 +63,10 @@ namespace InfiniSim::Ble {
     fastTimeoutScheduled = false;
     retryScheduled = false;
     persistenceWritesEnabled = true;
+    formatInitializationPending = false;
+    formatInitializationLegacyReset = false;
+    formatInitializationGeneration = 0;
+    requestedMode = Radio::DesiredMode::Connectable;
     virtualAdvertisingCommandActive = false;
     terminationRequested = false;
     initialized = false;
@@ -84,7 +88,8 @@ namespace InfiniSim::Ble {
 
   void VirtualBleAdapter::SetDesiredMode(Radio::DesiredMode mode) {
     Initialize();
-    radio.SetDesiredMode(mode);
+    requestedMode = mode;
+    radio.SetDesiredMode(formatInitializationPending ? Radio::DesiredMode::Off : requestedMode);
     counters.hostPolicyEvents++;
     Drain();
   }
@@ -126,6 +131,9 @@ namespace InfiniSim::Ble {
 
   VirtualBleAdapter::AttachResult VirtualBleAdapter::ConnectNextPeer() {
     Initialize();
+    if (formatInitializationPending) {
+      return AttachResult::Rejected;
+    }
     if (activePeer.has_value()) {
       return AttachResult::Busy;
     }
@@ -282,6 +290,9 @@ namespace InfiniSim::Ble {
     }
     if (diagnostics.usageDirty) {
       status.flags |= CompanionStatusFlag::UsageDirty;
+    }
+    if (formatInitializationPending) {
+      status.flags |= CompanionStatusFlag::FormatInitializationPending;
     }
     return status;
   }
@@ -553,26 +564,18 @@ namespace InfiniSim::Ble {
       bondPersistence.RecordBoot(BondPersistence::BootState::RestoreFailed);
       return false;
     }
-
-    bondPersistence.MarkWriteQueued();
-    const auto write = bondPersistence.CurrentWrite();
-    counters.persistenceWriteAttempts++;
-    counters.persistenceWakeLockDurationMs += VirtualWriteDurationMs;
-    const bool committed = write && WritePersistenceFile(write.data, write.size);
-    bondPersistence.WriteCompleted(committed,
-                                   VirtualWriteDurationMs,
-                                   committed ? static_cast<uint32_t>(write.size) : 0,
-                                   {false, false, empty.generation},
-                                   nowMs,
-                                   false);
-    if (!committed || !RestoreSnapshot(empty)) {
+    if (!RestoreSnapshot(empty)) {
       persistenceWritesEnabled = false;
       bondPersistence.RecordBoot(BondPersistence::BootState::RestoreFailed);
       return false;
     }
 
     persistenceWritesEnabled = true;
-    bondPersistence.RecordBoot(BondPersistence::BootState::InitializedEmpty, BondStoreCodec::DecodeError::None, legacyReset);
+    formatInitializationPending = true;
+    formatInitializationLegacyReset = legacyReset;
+    formatInitializationGeneration = empty.generation;
+    radio.SetDesiredMode(Radio::DesiredMode::Off);
+    bondPersistence.RecordBoot(BondPersistence::BootState::InitializingEmpty);
     return true;
   }
 
@@ -603,6 +606,15 @@ namespace InfiniSim::Ble {
                                        bondPolicy.Dirty(),
                                        nowMs,
                                        Connected());
+        if (formatInitializationPending && success &&
+            write.generation >= formatInitializationGeneration) {
+          formatInitializationPending = false;
+          bondPersistence.RecordBoot(BondPersistence::BootState::InitializedEmpty,
+                                     BondStoreCodec::DecodeError::None,
+                                     formatInitializationLegacyReset);
+          formatInitializationLegacyReset = false;
+          radio.SetDesiredMode(requestedMode);
+        }
         store.registry = bondPolicy.CaptureRegistry();
         store.generation = bondPolicy.Generation();
         return;

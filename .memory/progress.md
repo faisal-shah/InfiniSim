@@ -27,6 +27,7 @@
 
 ## Phase 3 - Physical ship gate
 
+- [x] P3-T0 mirror 2.0.1 asynchronous format gate and retry (2026-08-05)
 - [ ] P3-T1 consume real-watch RF/SMP/CCCD findings without weakening fidelity
 - [ ] GATE-P3 - keep simulator claims aligned with measured hardware behavior
 
