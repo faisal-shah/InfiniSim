@@ -6,6 +6,7 @@
 - A new TCP socket must not silently replace an existing watch connection.
 - Fresh, missing, invalid, and reset stores have distinct expected behavior.
 - Two concurrent BlueZ/RF devices cannot be proven by this simulator.
+- `FindPythonInterp` is removed from modern CMake; use `FindPython3`.
 
 ## Patterns
 
@@ -26,3 +27,4 @@
 | Date | Tasks Since Last Checkpoint | Notes |
 |---|---:|---|
 | 2026-08-04 | 6 | BLE policy integration, tests, CI, docs, and commit complete |
+| 2026-08-04 | 1 | Modern CMake Python discovery fixed and clean-built |
