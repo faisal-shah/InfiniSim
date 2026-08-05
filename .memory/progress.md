@@ -5,10 +5,9 @@
 
 ## Resume Here
 
-- Next task: P3-T1
-- Next action: support the physical fleet gate from
-  `../pinetime-dev-tools/RELEASE.md`; do not add simulator-only claims for RF or
-  SMP.
+- Next task: P2-T4
+- Next action: validate default configuration with CMake 3.28.3, then support
+  the physical fleet gate from `../pinetime-dev-tools/RELEASE.md`.
 - Last checkpoint: 2026-08-04 23:44 UTC
 
 ## Phase 1 - Policy integration
@@ -23,7 +22,8 @@
 - [x] P2-T1 enforce generated access/authentication metadata (2026-08-04)
 - [x] P2-T2 add GATT smoke and family-tree CI checkout (2026-08-04)
 - [x] P2-T3 pass all eight ptlab headless scenarios (2026-08-04)
-- [x] GATE-P2 - implementation commit `824d512` created (2026-08-04)
+- [ ] P2-T4 replace removed FindPythonInterp with FindPython3
+- [ ] GATE-P2 - clean CMake 3.28 configure/build/tests pass
 
 ## Phase 3 - Physical ship gate
 

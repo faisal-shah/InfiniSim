@@ -1,5 +1,5 @@
 message(STATUS "Using CMake version ${CMAKE_VERSION}")
-cmake_minimum_required(VERSION 3.10...${CMAKE_VERSION})
+cmake_minimum_required(VERSION 3.12...${CMAKE_VERSION})
 
 SET(InfiniTime_DIR "${CMAKE_SOURCE_DIR}/InfiniTime" CACHE PATH "Path to InfiniTime source path to use for simulator")
 
@@ -464,9 +464,9 @@ if(BUILD_TESTING)
     WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
   )
   if(ENABLE_BLE_TEST_CONTROL)
-    find_package(PythonInterp 3 REQUIRED)
+    find_package(Python3 COMPONENTS Interpreter REQUIRED)
     add_test(NAME infinisim-gatt-bridge-smoke
-      COMMAND "${PYTHON_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/GattBridgeSmoke.py" "$<TARGET_FILE:infinisim>"
+      COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/GattBridgeSmoke.py" "$<TARGET_FILE:infinisim>"
     )
     set_tests_properties(infinisim-gatt-bridge-smoke PROPERTIES
       WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"

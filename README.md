@@ -24,7 +24,7 @@ git clone --recursive --branch family-features \
 
 ## Build dependencies
 
-- CMake
+- CMake 3.12 or newer
 - SDL2 (provides the simulator window, handles mouse and keyboard input)
 - Compiler (g++ or clang++)
 - [lv_font_conv](https://github.com/lvgl/lv_font_conv#install-the-script) (for `font.c` generation since [InfiniTime#1097](https://github.com/InfiniTimeOrg/InfiniTime/pull/1097))

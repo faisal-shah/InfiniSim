@@ -52,7 +52,7 @@ namespace {
   bool DecodeFile(const std::string& path, Pinetime::Controllers::NimbleBondStoreSnapshot& snapshot) {
     const auto bytes = ReadBytes(path);
     const auto decoded = Pinetime::Controllers::BondStoreCodec::Decode(bytes.data(), bytes.size(), snapshot);
-    return decoded && decoded.migrationComplete;
+    return decoded && decoded.formatInitialized;
   }
 }
 

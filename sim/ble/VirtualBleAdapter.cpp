@@ -656,7 +656,7 @@ namespace InfiniSim::Ble {
       bondPersistence.RecordBoot(BondPersistence::BootState::Invalid, decoded.error);
       return false;
     }
-    if (!decoded.migrationComplete) {
+    if (!decoded.formatInitialized) {
       return InitializeEmptyPersistence(snapshot, true);
     }
     if (!RestoreSnapshot(snapshot)) {
