@@ -28,7 +28,7 @@ InfiniTime source tree.
 - Virtual security is injected state, never an SMP success claim.
 - Flash/wake-lock counters are software proxies only.
 - First-format persistence keeps virtual advertising off until the asynchronous
-  write succeeds, matching 2.0.1 hardware behavior.
+  write succeeds, matching 2.0.2 hardware behavior.
 
 ## Key Decisions
 

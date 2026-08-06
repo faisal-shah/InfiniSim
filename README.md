@@ -223,7 +223,7 @@ compiling.
 | Advertising, connection, pairing | Virtual policy events only; no RF or SMP |
 | Flash and wake-lock reporting | Event/write/state proxies, not electrical measurements |
 
-Fresh and pre-marker stores follow the 2.0.1 boot contract: the simulator
+Fresh and pre-marker stores follow the 2.0.2 boot contract: the simulator
 restores an empty RAM registry, reports `initializing_empty`, keeps virtual
 advertising off, and releases fast advertising only after the atomic write
 succeeds. Injected write failures remain visible and retry with the real

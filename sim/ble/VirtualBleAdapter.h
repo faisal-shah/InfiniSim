@@ -1,6 +1,7 @@
 #pragma once
 
 #include "components/ble/BleRadioStateMachine.h"
+#include "components/ble/BondBootPersistenceGate.h"
 #include "components/ble/BondPersistenceCoordinator.h"
 #include "components/ble/BondStorePolicy.h"
 #include "components/ble/BondStoreSnapshot.h"
@@ -147,6 +148,8 @@ namespace InfiniSim::Ble {
     BondSnapshot CaptureSnapshot() const;
     bool RestoreSnapshot(const BondSnapshot& snapshot);
     bool InitializeEmptyPersistence(const BondSnapshot& previous, bool legacyReset);
+    bool RestoreEmptyFailClosed(BondPersistence::BootState state,
+                                Pinetime::Controllers::BondStoreCodec::DecodeError error);
     void PollPersistence();
     bool ReadPersistenceFile();
     bool WritePersistenceFile(const uint8_t* data, size_t size);
@@ -157,6 +160,7 @@ namespace InfiniSim::Ble {
     Radio radio;
     BondPolicy bondPolicy;
     BondPersistence bondPersistence;
+    Pinetime::Controllers::BondBootPersistenceGate bootPersistenceGate;
     BondSnapshot store;
     VirtualPeer nextPeer;
     std::optional<VirtualPeer> activePeer;
@@ -173,9 +177,6 @@ namespace InfiniSim::Ble {
     bool retryScheduled = false;
     bool initialized = false;
     bool persistenceWritesEnabled = true;
-    bool formatInitializationPending = false;
-    bool formatInitializationLegacyReset = false;
-    uint64_t formatInitializationGeneration = 0;
     Radio::DesiredMode requestedMode = Radio::DesiredMode::Connectable;
     bool virtualAdvertisingCommandActive = false;
     bool terminationRequested = false;

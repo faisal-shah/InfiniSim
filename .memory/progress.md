@@ -8,7 +8,7 @@
 - Next task: P3-T1
 - Next action: support the physical fleet gate from
   `../pinetime-dev-tools/RELEASE.md`.
-- Last checkpoint: 2026-08-04 23:44 UTC
+- Last checkpoint: 2026-08-06 02:18 UTC
 
 ## Phase 1 - Policy integration
 
@@ -27,7 +27,7 @@
 
 ## Phase 3 - Physical ship gate
 
-- [x] P3-T0 mirror 2.0.1 asynchronous format gate and retry (2026-08-05)
+- [x] P3-T0 mirror the 2.0.2 nonblocking host-restore and format gates (2026-08-05)
 - [ ] P3-T1 consume real-watch RF/SMP/CCCD findings without weakening fidelity
 - [ ] GATE-P3 - keep simulator claims aligned with measured hardware behavior
 

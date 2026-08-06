@@ -34,7 +34,9 @@ namespace {
 
   void ConnectAndDisconnect(InfiniSim::Ble::VirtualBleAdapter& adapter, const InfiniSim::Ble::VirtualPeer& peer) {
     adapter.SetNextPeer(peer);
-    Check(adapter.ConnectNextPeer() == InfiniSim::Ble::VirtualBleAdapter::AttachResult::Attached, "virtual peer attaches");
+    char description[64];
+    std::snprintf(description, sizeof(description), "virtual peer %u attaches", peer.identity.address[0]);
+    Check(adapter.ConnectNextPeer() == InfiniSim::Ble::VirtualBleAdapter::AttachResult::Attached, description);
     adapter.Disconnect();
     adapter.AdvanceTime(Pinetime::Controllers::BondPersistenceCoordinator::CriticalSettleMs);
   }

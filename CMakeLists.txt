@@ -13,6 +13,7 @@ endif()
 set(INFINITIME_FAMILY_REQUIRED_FILES
   protocol/companion.json
   src/components/ble/BleRadioStateMachine.cpp
+  src/components/ble/BondBootPersistenceGate.h
   src/components/ble/BondRegistry.cpp
   src/components/ble/BondStorePolicy.cpp
   src/components/ble/BondStoreCodec.cpp

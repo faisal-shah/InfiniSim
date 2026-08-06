@@ -45,6 +45,8 @@ namespace InfiniSim::Ble {
     initialized = true;
     radio.SetIdentityAddressIsRandom(true);
     radio.OnHostSync();
+    bootPersistenceGate.BeginRestore();
+    radio.SetDesiredMode(Radio::DesiredMode::Off);
     counters.hostPolicyEvents++;
     ReadPersistenceFile();
     Drain();
@@ -63,9 +65,7 @@ namespace InfiniSim::Ble {
     fastTimeoutScheduled = false;
     retryScheduled = false;
     persistenceWritesEnabled = true;
-    formatInitializationPending = false;
-    formatInitializationLegacyReset = false;
-    formatInitializationGeneration = 0;
+    bootPersistenceGate = {};
     requestedMode = Radio::DesiredMode::Connectable;
     virtualAdvertisingCommandActive = false;
     terminationRequested = false;
@@ -89,7 +89,7 @@ namespace InfiniSim::Ble {
   void VirtualBleAdapter::SetDesiredMode(Radio::DesiredMode mode) {
     Initialize();
     requestedMode = mode;
-    radio.SetDesiredMode(formatInitializationPending ? Radio::DesiredMode::Off : requestedMode);
+    radio.SetDesiredMode(bootPersistenceGate.BlocksRadio() ? Radio::DesiredMode::Off : requestedMode);
     counters.hostPolicyEvents++;
     Drain();
   }
@@ -131,7 +131,7 @@ namespace InfiniSim::Ble {
 
   VirtualBleAdapter::AttachResult VirtualBleAdapter::ConnectNextPeer() {
     Initialize();
-    if (formatInitializationPending) {
+    if (bootPersistenceGate.BlocksRadio()) {
       return AttachResult::Rejected;
     }
     if (activePeer.has_value()) {
@@ -291,7 +291,7 @@ namespace InfiniSim::Ble {
     if (diagnostics.usageDirty) {
       status.flags |= CompanionStatusFlag::UsageDirty;
     }
-    if (formatInitializationPending) {
+    if (bootPersistenceGate.FormatPending()) {
       status.flags |= CompanionStatusFlag::FormatInitializationPending;
     }
     return status;
@@ -561,22 +561,37 @@ namespace InfiniSim::Ble {
     empty.generation = previous.generation + 1;
     if (!bondPersistence.Capture(empty)) {
       persistenceWritesEnabled = false;
+      bootPersistenceGate.CompleteRestore(false);
       bondPersistence.RecordBoot(BondPersistence::BootState::RestoreFailed);
       return false;
     }
     if (!RestoreSnapshot(empty)) {
       persistenceWritesEnabled = false;
+      bootPersistenceGate.CompleteRestore(false);
       bondPersistence.RecordBoot(BondPersistence::BootState::RestoreFailed);
       return false;
     }
 
     persistenceWritesEnabled = true;
-    formatInitializationPending = true;
-    formatInitializationLegacyReset = legacyReset;
-    formatInitializationGeneration = empty.generation;
+    bootPersistenceGate.BeginFormatInitialization(empty.generation, legacyReset);
+    bootPersistenceGate.CompleteRestore(true);
     radio.SetDesiredMode(Radio::DesiredMode::Off);
     bondPersistence.RecordBoot(BondPersistence::BootState::InitializingEmpty);
     return true;
+  }
+
+  bool VirtualBleAdapter::RestoreEmptyFailClosed(BondPersistence::BootState state,
+                                                 BondStoreCodec::DecodeError error) {
+    BondSnapshot empty;
+    const bool restored = RestoreSnapshot(empty);
+    persistenceWritesEnabled = false;
+    bootPersistenceGate.CompleteRestore(restored);
+    bondPersistence.RecordBoot(restored ? state : BondPersistence::BootState::RestoreFailed,
+                               restored ? error : BondStoreCodec::DecodeError::None);
+    if (restored) {
+      radio.SetDesiredMode(requestedMode);
+    }
+    return false;
   }
 
   void VirtualBleAdapter::PollPersistence() {
@@ -606,14 +621,13 @@ namespace InfiniSim::Ble {
                                        bondPolicy.Dirty(),
                                        nowMs,
                                        Connected());
-        if (formatInitializationPending && success &&
-            write.generation >= formatInitializationGeneration) {
-          formatInitializationPending = false;
+        if (bootPersistenceGate.CompleteFormatWrite(success, write.generation)) {
           bondPersistence.RecordBoot(BondPersistence::BootState::InitializedEmpty,
                                      BondStoreCodec::DecodeError::None,
-                                     formatInitializationLegacyReset);
-          formatInitializationLegacyReset = false;
-          radio.SetDesiredMode(requestedMode);
+                                     bootPersistenceGate.FormatNoticePending());
+          if (!bootPersistenceGate.BlocksRadio()) {
+            radio.SetDesiredMode(requestedMode);
+          }
         }
         store.registry = bondPolicy.CaptureRegistry();
         store.generation = bondPolicy.Generation();
@@ -625,6 +639,7 @@ namespace InfiniSim::Ble {
   bool VirtualBleAdapter::ReadPersistenceFile() {
     if (storeFailure == StoreFailure::Read) {
       persistenceWritesEnabled = false;
+      bootPersistenceGate.CompleteRestore(false);
       bondPersistence.RecordBoot(BondPersistence::BootState::RestoreFailed);
       return false;
     }
@@ -633,6 +648,7 @@ namespace InfiniSim::Ble {
     const bool exists = std::filesystem::exists(persistencePath, existsError);
     if (existsError) {
       persistenceWritesEnabled = false;
+      bootPersistenceGate.CompleteRestore(false);
       bondPersistence.RecordBoot(BondPersistence::BootState::RestoreFailed);
       return false;
     }
@@ -642,42 +658,41 @@ namespace InfiniSim::Ble {
 
     std::ifstream input(persistencePath, std::ios::binary | std::ios::ate);
     if (!input) {
-      persistenceWritesEnabled = false;
-      bondPersistence.RecordBoot(BondPersistence::BootState::Invalid, BondStoreCodec::DecodeError::Length);
-      return false;
+      return RestoreEmptyFailClosed(BondPersistence::BootState::Invalid,
+                                    BondStoreCodec::DecodeError::Length);
     }
     const auto end = input.tellg();
     if (end < 0 || static_cast<uint64_t>(end) > BondStoreCodec::MaxEncodedSize) {
-      persistenceWritesEnabled = false;
-      bondPersistence.RecordBoot(BondPersistence::BootState::Invalid, BondStoreCodec::DecodeError::Length);
-      return false;
+      return RestoreEmptyFailClosed(BondPersistence::BootState::Invalid,
+                                    BondStoreCodec::DecodeError::Length);
     }
     auto& buffer = bondPersistence.BootBuffer();
     const size_t size = static_cast<size_t>(end);
     input.seekg(0);
     input.read(reinterpret_cast<char*>(buffer.data()), static_cast<std::streamsize>(size));
     if (!input) {
-      persistenceWritesEnabled = false;
-      bondPersistence.RecordBoot(BondPersistence::BootState::Invalid, BondStoreCodec::DecodeError::Length);
-      return false;
+      return RestoreEmptyFailClosed(BondPersistence::BootState::Invalid,
+                                    BondStoreCodec::DecodeError::Length);
     }
     BondSnapshot snapshot;
     const auto decoded = BondStoreCodec::Decode(buffer.data(), size, snapshot);
     if (!decoded) {
-      persistenceWritesEnabled = false;
-      bondPersistence.RecordBoot(BondPersistence::BootState::Invalid, decoded.error);
-      return false;
+      return RestoreEmptyFailClosed(BondPersistence::BootState::Invalid,
+                                    decoded.error);
     }
     if (!decoded.formatInitialized) {
       return InitializeEmptyPersistence(snapshot, true);
     }
     if (!RestoreSnapshot(snapshot)) {
       persistenceWritesEnabled = false;
+      bootPersistenceGate.CompleteRestore(false);
       bondPersistence.RecordBoot(BondPersistence::BootState::RestoreFailed);
       return false;
     }
     persistenceWritesEnabled = true;
+    bootPersistenceGate.CompleteRestore(true);
     bondPersistence.RecordBoot(BondPersistence::BootState::Restored);
+    radio.SetDesiredMode(requestedMode);
     return true;
   }
 

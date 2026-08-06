@@ -18,6 +18,8 @@ namespace {
     switch (state) {
       case BootState::Unknown:
         return "unknown";
+      case BootState::Restoring:
+        return "restoring";
       case BootState::Restored:
         return "restored";
       case BootState::InitializingEmpty:
