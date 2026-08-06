@@ -21,6 +21,7 @@
 #include <cmath> // std::pow
 
 #include "components/fs/FS.h"
+#include "components/fs/FamilyStateCodec.h"
 #include "components/settings/Settings.h"
 #include "drivers/SpiNorFlash.h"
 
@@ -74,7 +75,6 @@
 Pinetime::Drivers::SpiNorFlash spiNorFlash {"spiNorFlash.raw"};
 
 Pinetime::Controllers::FS fs {spiNorFlash};
-Pinetime::Controllers::Settings settingsController {fs};
 
 const char* lfs_error_to_string(int err) {
   if (err == LFS_ERR_OK)
@@ -516,13 +516,28 @@ int command_settings(const std::string& program_name, const std::vector<std::str
     }
   }
 
-  if (verbose) {
-    std::cout << "calling Settings::Init()" << std::endl;
+  Pinetime::Controllers::FamilyState familyState;
+  Pinetime::Controllers::FamilyStateCodec::Buffer encoded {};
+  lfs_file_t file {};
+  if (fs.FileOpen(&file, "/.system/family-state.dat", LFS_O_RDONLY) == LFS_ERR_OK) {
+    const bool read =
+      fs.FileRead(&file, encoded.data(), encoded.size()) ==
+      static_cast<int>(encoded.size());
+    fs.FileClose(&file);
+    if (!read ||
+        !Pinetime::Controllers::FamilyStateCodec::Decode(
+          encoded.data(), encoded.size(), familyState)) {
+      std::cerr << "invalid family-state.dat" << std::endl;
+      return 1;
+    }
+  } else if (verbose) {
+    std::cout << "family-state.dat missing; showing defaults" << std::endl;
   }
-  settingsController.Init();
+  const auto& familySettings = familyState.settings;
   using namespace Pinetime::Controllers;
   {
-    auto clockface = settingsController.GetWatchFace();
+    auto clockface =
+      static_cast<Pinetime::Applications::WatchFace>(familySettings.watchFace);
     auto clockface_str = [](auto val) {
       if (val == Pinetime::Applications::WatchFace::Digital)
         return "Digital";
@@ -537,7 +552,7 @@ int command_settings(const std::string& program_name, const std::vector<std::str
     std::cout << "ClockFace: " << static_cast<uint32_t>(clockface) << " " << clockface_str << std::endl;
   }
   {
-    auto chimes = settingsController.GetChimeOption();
+    auto chimes = static_cast<Settings::ChimesOption>(familySettings.chimeOption);
     auto chimes_str = [](auto val) {
       if (val == Settings::ChimesOption::None)
         return "None";
@@ -584,14 +599,26 @@ int command_settings(const std::string& program_name, const std::vector<std::str
       return "Orange";
     return "unknown";
   };
-  std::cout << "PTSColorTime: " << color_str(settingsController.GetPTSColorTime()) << std::endl;
-  std::cout << "PTSColorBar: " << color_str(settingsController.GetPTSColorBar()) << std::endl;
-  std::cout << "PTSColorBG: " << color_str(settingsController.GetPTSColorBG()) << std::endl;
-  std::cout << "AppMenu: " << static_cast<int>(settingsController.GetAppMenu()) << std::endl;
-  std::cout << "SettingsMenu: " << static_cast<int>(settingsController.GetSettingsMenu()) << std::endl;
-  std::cout << "ClockType: " << (settingsController.GetClockType() == Settings::ClockType::H24 ? "H24" : "H12") << std::endl;
+  std::cout << "PTSColorTime: "
+            << color_str(static_cast<Settings::Colors>(familySettings.ptsColorTime))
+            << std::endl;
+  std::cout << "PTSColorBar: "
+            << color_str(static_cast<Settings::Colors>(familySettings.ptsColorBar))
+            << std::endl;
+  std::cout << "PTSColorBG: "
+            << color_str(static_cast<Settings::Colors>(familySettings.ptsColorBackground))
+            << std::endl;
+  std::cout << "AppMenu: 0" << std::endl;
+  std::cout << "SettingsMenu: 0" << std::endl;
+  std::cout << "ClockType: "
+            << (familySettings.clockType ==
+                    static_cast<uint8_t>(Settings::ClockType::H24)
+                  ? "H24"
+                  : "H12")
+            << std::endl;
   {
-    auto notif = settingsController.GetNotificationStatus();
+    auto notif =
+      static_cast<Settings::Notification>(familySettings.notificationStatus);
     auto notif_str = [](auto val) {
       if (val == Settings::Notification::On)
         return "On";
@@ -603,17 +630,32 @@ int command_settings(const std::string& program_name, const std::vector<std::str
     }(notif);
     std::cout << "NotificationStatus: " << static_cast<int>(notif) << " " << notif_str << std::endl;
   }
-  std::cout << "ScreenTimeOut: " << settingsController.GetScreenTimeOut() << " ms" << std::endl;
-  std::cout << "ShakeThreshold: " << settingsController.GetShakeThreshold() << std::endl;
+  std::cout << "ScreenTimeOut: " << familySettings.screenTimeoutMs << " ms"
+            << std::endl;
+  std::cout << "ShakeThreshold: " << familySettings.shakeWakeThreshold
+            << std::endl;
   {
     std::cout << "WakeUpModes: " << std::endl;
-    std::cout << "- SingleTap:  " << (settingsController.isWakeUpModeOn(Settings::WakeUpMode::SingleTap) ? "ON" : "OFF") << std::endl;
-    std::cout << "- DoubleTap:  " << (settingsController.isWakeUpModeOn(Settings::WakeUpMode::DoubleTap) ? "ON" : "OFF") << std::endl;
-    std::cout << "- RaiseWrist: " << (settingsController.isWakeUpModeOn(Settings::WakeUpMode::RaiseWrist) ? "ON" : "OFF") << std::endl;
-    std::cout << "- Shake:      " << (settingsController.isWakeUpModeOn(Settings::WakeUpMode::Shake) ? "ON" : "OFF") << std::endl;
+    const auto enabled = [&familySettings](Settings::WakeUpMode mode) {
+      return (familySettings.wakeModes &
+              (1u << static_cast<uint8_t>(mode))) != 0;
+    };
+    std::cout << "- SingleTap:  "
+              << (enabled(Settings::WakeUpMode::SingleTap) ? "ON" : "OFF")
+              << std::endl;
+    std::cout << "- DoubleTap:  "
+              << (enabled(Settings::WakeUpMode::DoubleTap) ? "ON" : "OFF")
+              << std::endl;
+    std::cout << "- RaiseWrist: "
+              << (enabled(Settings::WakeUpMode::RaiseWrist) ? "ON" : "OFF")
+              << std::endl;
+    std::cout << "- Shake:      "
+              << (enabled(Settings::WakeUpMode::Shake) ? "ON" : "OFF")
+              << std::endl;
   }
   {
-    auto brightness = settingsController.GetBrightness();
+    auto brightness = static_cast<BrightnessController::Levels>(
+      familySettings.brightness);
     auto brightness_str = [](auto val) {
       if (val == BrightnessController::Levels::Off)
         return "Off";
@@ -627,8 +669,8 @@ int command_settings(const std::string& program_name, const std::vector<std::str
     }(brightness);
     std::cout << "Brightness: " << static_cast<int>(brightness) << " " << brightness_str << std::endl;
   }
-  std::cout << "StepsGoal: " << settingsController.GetStepsGoal() << std::endl;
-  std::cout << "BleRadioEnabled: " << (settingsController.GetBleRadioEnabled() ? "true" : "false") << std::endl;
+  std::cout << "StepsGoal: " << familySettings.stepsGoal << std::endl;
+  std::cout << "BleRadioEnabled: true" << std::endl;
   return 0;
 }
 
@@ -801,7 +843,10 @@ int main(int argc, char** argv) {
   if (verbose) {
     std::cout << "Calling FS::Init()" << std::endl;
   }
-  fs.Init();
+  if (!fs.Init()) {
+    std::cerr << "filesystem mount failed" << std::endl;
+    return 1;
+  }
 
   const std::string command = args.front();
   args.erase(args.begin()); // pop_front

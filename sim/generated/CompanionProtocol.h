@@ -1,5 +1,5 @@
 // Generated from protocol/companion.json.
-// Manifest SHA-256: 6a3dc57bba4cb3ef146be88209256026e5a531f0fbad6079e34a14692dcd0949
+// Manifest SHA-256: f4881c3833b552227463a5af2f4a07f110ec1c67f7ff44d1f193af15b9d6750c
 // Do not edit by hand.
 #pragma once
 
@@ -42,5 +42,6 @@ namespace SimCompanionProtocol {
     TaskRead = 32,
     CompanionStatus = 33,
     CompanionVerify = 34,
+    FamilyStateStatus = 35,
   };
 }

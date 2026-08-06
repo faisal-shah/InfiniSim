@@ -50,6 +50,13 @@ SpiNorFlash::SpiNorFlash(const std::string& memoryFilePath) : memoryFilePath {me
   fs::path f {memoryFilePath};
   if (fs::exists(f)) {
     memoryFile = std::fstream(memoryFilePath, std::ios::binary | std::fstream::in | std::fstream::out);
+    const auto existingSize = fs::file_size(f);
+    if (existingSize < memorySize) {
+      memoryFile.clear();
+      memoryFile.seekp(memorySize - 1);
+      memoryFile.put('\0');
+      memoryFile.flush();
+    }
   } else {
     memoryFile = std::fstream(memoryFilePath, std::ios::trunc | std::ios::binary | std::fstream::in | std::fstream::out);
     memoryFile.seekp(memorySize - 1);
@@ -115,18 +122,26 @@ uint8_t SpiNorFlash::ReadConfigurationRegister() {
   return 0;
 }
 
-void SpiNorFlash::Read(uint32_t address, uint8_t* buffer, size_t size) {
+bool SpiNorFlash::Read(uint32_t address, uint8_t* buffer, size_t size) {
   flashReads++; flashReadBytes += size;
   static_assert(sizeof(uint8_t) == sizeof(char));
   AssertAwake("Read");
   if (address + size * sizeof(uint8_t) > memorySize) {
     throw std::runtime_error("SpiNorFlash::Read out of bounds");
   }
-  memoryFile.seekp(address);
+  memoryFile.clear();
+  memoryFile.seekg(address);
   memoryFile.read(reinterpret_cast<char*>(buffer), size);
+  const bool complete =
+    memoryFile.gcount() == static_cast<std::streamsize>(size);
+  if (!complete) {
+    memoryFile.clear();
+  }
+  return complete;
 }
 
-void SpiNorFlash::WriteEnable() {
+bool SpiNorFlash::WriteEnable() {
+  return true;
 }
 
 void SpiNorFlash::SectorErase(uint32_t sectorAddress) {

@@ -30,6 +30,7 @@
 
 /* Standard includes. */
 #include <chrono>
+#include <mutex>
 
 /* FreeRTOS includes. */
 #include "FreeRTOS.h"
@@ -37,6 +38,18 @@
 //#include "timers.h"
 //#include "stack_macros.h"
 
+
+namespace {
+  std::recursive_mutex criticalSection;
+}
+
+void vPortEnterCritical() {
+  criticalSection.lock();
+}
+
+void vPortExitCritical() {
+  criticalSection.unlock();
+}
 
 TickType_t xTaskGetTickCount()
 {

@@ -268,8 +268,6 @@ target_sources(infinisim PUBLIC
   ${InfiniTime_DIR}/src/components/multialarm/MultiAlarmController.cpp
   ${InfiniTime_DIR}/src/components/schedule/ScheduleController.h
   ${InfiniTime_DIR}/src/components/schedule/ScheduleController.cpp
-  ${InfiniTime_DIR}/src/components/fs/StagedList.h
-  ${InfiniTime_DIR}/src/components/fs/StagedList.cpp
   ${InfiniTime_DIR}/src/components/task/TaskController.h
   ${InfiniTime_DIR}/src/components/task/TaskController.cpp
   ${InfiniTime_DIR}/src/components/prayer/PrayerRules.h
@@ -332,6 +330,12 @@ target_sources(infinisim PUBLIC
   ${InfiniTime_DIR}/src/systemtask/SystemTask.cpp
   ${InfiniTime_DIR}/src/systemtask/SystemMonitor.h
   ${InfiniTime_DIR}/src/systemtask/SystemMonitor.cpp
+  ${InfiniTime_DIR}/src/storagetask/StorageTask.h
+  ${InfiniTime_DIR}/src/storagetask/StorageTask.cpp
+  ${InfiniTime_DIR}/src/components/ble/FamilyStateStatus.h
+  ${InfiniTime_DIR}/src/components/ble/FamilyStateStatus.cpp
+  ${InfiniTime_DIR}/src/components/fs/FamilyStateCodec.h
+  ${InfiniTime_DIR}/src/components/fs/FamilyStateCodec.cpp
   ${InfiniTime_DIR}/src/utility/Math.h
   ${InfiniTime_DIR}/src/utility/Math.cpp
 )
@@ -491,7 +495,9 @@ add_executable(littlefs-do
   sim/drivers/SpiMaster.cpp
 
   ${InfiniTime_DIR}/src/components/settings/Settings.h
-  ${InfiniTime_DIR}/src/components/settings/Settings.cpp
+  ${InfiniTime_DIR}/src/components/fs/FamilyState.h
+  ${InfiniTime_DIR}/src/components/fs/FamilyStateCodec.h
+  ${InfiniTime_DIR}/src/components/fs/FamilyStateCodec.cpp
 )
 
 target_link_libraries(littlefs-do PUBLIC sim-base)

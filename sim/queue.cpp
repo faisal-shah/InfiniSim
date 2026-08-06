@@ -1,7 +1,8 @@
 #include "FreeRTOS.h"
 #include "queue.h"
+#include <cassert>
 #include <stdexcept>
-#include <SDL.h>
+#include <chrono>
 
 QueueHandle_t xQueueCreate(const UBaseType_t uxQueueLength, const UBaseType_t uxItemSize) {
   Queue_t* xQueue = new Queue_t;
@@ -14,8 +15,11 @@ QueueHandle_t xQueueCreate(const UBaseType_t uxQueueLength, const UBaseType_t ux
 
 BaseType_t xQueueSend(QueueHandle_t xQueue, const void* const pvItemToQueue, TickType_t xTicksToWait) {
   Queue_t* pxQueue = (Queue_t*) xQueue;
-  std::lock_guard<std::mutex> guard(pxQueue->mutex);
-  pxQueue->queue.push_back(*reinterpret_cast<const uint8_t* const>(pvItemToQueue));
+  {
+    std::lock_guard<std::mutex> guard(pxQueue->mutex);
+    pxQueue->queue.push_back(*reinterpret_cast<const uint8_t* const>(pvItemToQueue));
+  }
+  pxQueue->condition.notify_one();
   return true;
 }
 
@@ -27,17 +31,15 @@ BaseType_t xQueueSendFromISR(QueueHandle_t xQueue, const void* const pvItemToQue
 
 BaseType_t xQueueReceive(QueueHandle_t xQueue, void* const pvBuffer, TickType_t xTicksToWait) {
   Queue_t* pxQueue = (Queue_t*) xQueue;
-  while (pxQueue->queue.empty()) {
-    if (xTicksToWait <= 25) {
-      return false;
-    }
-    SDL_Delay(25);
-    xTicksToWait -= 25;
+  std::unique_lock<std::mutex> lock(pxQueue->mutex);
+  if (xTicksToWait == portMAX_DELAY) {
+    pxQueue->condition.wait(lock, [pxQueue] { return !pxQueue->queue.empty(); });
+  } else if (!pxQueue->condition.wait_for(
+               lock,
+               std::chrono::milliseconds(xTicksToWait),
+               [pxQueue] { return !pxQueue->queue.empty(); })) {
+    return pdFALSE;
   }
-  if (pxQueue->queue.empty()) {
-    return false;
-  }
-  std::lock_guard<std::mutex> guard(pxQueue->mutex);
   uint8_t* buf = reinterpret_cast<uint8_t* const>(pvBuffer);
   *buf = pxQueue->queue.at(0);
   pxQueue->queue.erase(pxQueue->queue.begin());
@@ -46,7 +48,7 @@ BaseType_t xQueueReceive(QueueHandle_t xQueue, void* const pvBuffer, TickType_t 
 
 UBaseType_t uxQueueMessagesWaiting(const QueueHandle_t xQueue) {
   UBaseType_t uxReturn;
-  SDL_assert(xQueue);
+  assert(xQueue);
   Queue_t* pxQueue = (Queue_t*) xQueue;
   // taskENTER_CRITICAL();
   {

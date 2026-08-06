@@ -53,6 +53,7 @@
 #include "drivers/Cst816s.h"
 #include "drivers/PinMap.h"
 #include "systemtask/SystemTask.h"
+#include "storagetask/StorageTask.h"
 #include "drivers/PinMap.h"
 #include "touchhandler/TouchHandler.h"
 #include "buttonhandler/ButtonHandler.h"
@@ -358,7 +359,9 @@ Pinetime::Controllers::HeartRateController heartRateController;
 Pinetime::Applications::HeartRateTask heartRateApp(heartRateSensor, heartRateController);
 
 Pinetime::Controllers::FS fs {spiNorFlash};
-Pinetime::Controllers::Settings settingsController {fs};
+Pinetime::System::StorageTask storageTask {fs};
+Pinetime::Controllers::StorageRecoveryState storageRecoveryState;
+Pinetime::Controllers::Settings settingsController {storageTask};
 Pinetime::Controllers::MotorController motorController {};
 
 Pinetime::Controllers::DateTime dateTimeController {settingsController};
@@ -370,11 +373,11 @@ Pinetime::Controllers::TimerController timerController;
 #endif
 
 Pinetime::Controllers::StopWatchController stopWatchController {};
-Pinetime::Controllers::MultiAlarmController multiAlarmController {dateTimeController, fs};
-Pinetime::Controllers::ScheduleController scheduleController {dateTimeController, fs};
-Pinetime::Controllers::TaskController taskController {dateTimeController, fs};
-Pinetime::Controllers::PrayerController prayerController {dateTimeController, fs};
-Pinetime::Controllers::BeaconController beaconController {fs};
+Pinetime::Controllers::MultiAlarmController multiAlarmController {dateTimeController, storageTask};
+Pinetime::Controllers::ScheduleController scheduleController {dateTimeController, storageTask};
+Pinetime::Controllers::TaskController taskController {dateTimeController, storageTask};
+Pinetime::Controllers::PrayerController prayerController {dateTimeController, storageTask};
+Pinetime::Controllers::BeaconController beaconController {storageTask};
 Pinetime::Controllers::AlertQueue alertQueue;
 Pinetime::Controllers::TouchHandler touchHandler;
 Pinetime::Controllers::ButtonHandler buttonHandler;
@@ -404,10 +407,12 @@ Pinetime::Applications::DisplayApp displayApp(lcd,
                                               brightnessController,
                                               touchHandler,
                                               fs,
+                                              storageTask,
                                               spiNorFlash);
 
 Pinetime::System::SystemTask systemTask(spi,
                                         spiNorFlash,
+                                        storageTask,
                                         twiMaster,
                                         touchPanel,
                                         batteryController,
@@ -492,6 +497,7 @@ public:
     // update time to current system time once on startup
     dateTimeController.SetCurrentTime(std::chrono::system_clock::now());
 
+    storageTask.AttachRecoveryState(storageRecoveryState);
     systemTask.Start();
 
     // initialize the first LVGL screen
@@ -1309,7 +1315,10 @@ int main(int argc, char** argv) {
   /*Initialize the HAL (display, input devices, tick) for LVGL*/
   hal_init();
 
-  fs.Init();
+  if (!fs.Init()) {
+    std::cerr << "filesystem mount failed" << std::endl;
+    return 1;
+  }
 
   // initialize the core of our Simulator
   Framework fw(fw_status_window_visible, 240, 240);

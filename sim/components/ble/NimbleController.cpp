@@ -17,7 +17,6 @@
 #include "components/ble/BleController.h"
 #include "components/ble/NotificationManager.h"
 #include "components/datetime/DateTimeController.h"
-#include "components/fs/FS.h"
 #include "systemtask/SystemTask.h"
 #include "ble/VirtualRadioIntent.h"
 
@@ -31,7 +30,7 @@ NimbleController::NimbleController(Pinetime::System::SystemTask& systemTask,
                                    Pinetime::Drivers::SpiNorFlash& spiNorFlash,
                                    Controllers::HeartRateController& heartRateController,
                                    Controllers::MotionController& motionController,
-                                   Controllers::FS& fs,
+                                   Pinetime::System::StorageTask& storageTask,
                                    Controllers::ScheduleController& scheduleController,
                                    Controllers::TaskController& taskController,
                                    Controllers::PrayerController& prayerController,
@@ -42,9 +41,9 @@ NimbleController::NimbleController(Pinetime::System::SystemTask& systemTask,
     dateTimeController {dateTimeController},
     notificationManager {notificationManager},
     spiNorFlash {spiNorFlash},
-    fs {fs},
+    storageTask {storageTask},
     dfuService {systemTask, bleController, spiNorFlash},
-    fsService {systemTask, fs},
+    fsService {systemTask, storageTask},
 
     //    currentTimeClient {dateTimeController},
     anService {systemTask, notificationManager},

@@ -29,7 +29,7 @@
 #include "components/ble/CompanionManagementService.h"
 #include "components/ble/CompanionManagementStatus.h"
 #include "components/ble/MultiAlarmService.h"
-#include "components/fs/FS.h"
+#include "storagetask/StorageTask.h"
 #include "ble/VirtualBleAdapter.h"
 
 // #include "components/ble/FSService.h"
@@ -68,7 +68,7 @@ namespace Pinetime {
                        Pinetime::Drivers::SpiNorFlash& spiNorFlash,
                        Controllers::HeartRateController& heartRateController,
                        Controllers::MotionController& motionController,
-                       Pinetime::Controllers::FS& fs,
+                       Pinetime::System::StorageTask& storageTask,
                        Controllers::ScheduleController& scheduleController,
                        Controllers::TaskController& taskController,
                        Controllers::PrayerController& prayerController,
@@ -186,7 +186,7 @@ namespace Pinetime {
       DateTime& dateTimeController;
       Pinetime::Controllers::NotificationManager& notificationManager;
       Pinetime::Drivers::SpiNorFlash& spiNorFlash;
-      Pinetime::Controllers::FS& fs;
+      Pinetime::System::StorageTask& storageTask;
       DfuService dfuService;
       FSService fsService;
 

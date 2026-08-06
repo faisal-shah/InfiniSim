@@ -4,6 +4,7 @@
 #include <functional>
 
 #include <FreeRTOS.h>
+#include "drivers/SpiMasterHardening.h"
 
 // #include <semphr.h>
 // #include <task.h>
@@ -43,6 +44,9 @@ namespace Pinetime {
 
       void Sleep();
       void Wakeup();
+      const SpiTransactionStats& GetTransactionStats() const {
+        return stats;
+      }
 
     private:
       //      void SetupWorkaroundForFtpan58(NRF_SPIM_Type* spim, uint32_t ppi_channel, uint32_t gpiote_channel);
@@ -61,6 +65,7 @@ namespace Pinetime {
 
       volatile uint32_t currentBufferAddr = 0;
       volatile size_t currentBufferSize = 0;
+      SpiTransactionStats stats;
       //      volatile TaskHandle_t taskToNotify;
       //      SemaphoreHandle_t mutex = nullptr;
     };

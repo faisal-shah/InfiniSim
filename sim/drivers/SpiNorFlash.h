@@ -26,15 +26,23 @@ namespace Pinetime {
       bool WriteInProgress();
       bool WriteEnabled();
       uint8_t ReadConfigurationRegister();
-      void Read(uint32_t address, uint8_t* buffer, size_t size);
+      bool Read(uint32_t address, uint8_t* buffer, size_t size);
       void Write(uint32_t address, const uint8_t* buffer, size_t size);
-      void WriteEnable();
+      bool WriteEnable();
       void SectorErase(uint32_t sectorAddress);
       uint8_t ReadSecurityRegister();
       bool ProgramFailed();
       bool EraseFailed();
 
       Identification GetIdentification() const;
+      struct Stats {
+        uint16_t readFailures = 0;
+        uint16_t programTimeouts = 0;
+        uint16_t eraseTimeouts = 0;
+      };
+      const Stats& GetStats() const {
+        return stats;
+      }
 
       void Init();
       void Uninit();
@@ -66,6 +74,7 @@ namespace Pinetime {
       Identification device_id;
       std::fstream memoryFile;
       bool sleeping = false;
+      Stats stats;
     };
   }
 }

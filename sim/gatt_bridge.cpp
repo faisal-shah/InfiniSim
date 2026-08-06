@@ -27,6 +27,7 @@
 #include "components/datetime/DateTimeController.h"
 #include "components/motion/MotionController.h"
 #include "systemtask/SystemTask.h"
+#include "storagetask/StorageTask.h"
 #include "notify_queue.h"
 #include "Version.h"
 
@@ -608,6 +609,15 @@ uint8_t GattBridge::Dispatch(uint8_t charId, uint8_t op, const uint8_t* payload,
         len,
         out,
         outLen);
+    case CharId::FamilyStateStatus:
+      if (op != 1) {
+        return 0xFE;
+      } else {
+        const auto status = systemTask.storage().Status().Encode();
+        std::memcpy(out, status.data(), status.size());
+        outLen = status.size();
+        return 0;
+      }
   }
   return 0xFF; // unknown characteristic
 }

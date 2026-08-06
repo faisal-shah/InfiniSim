@@ -75,6 +75,8 @@ typedef struct TaskHandle_t {
   TaskFunction_t task_fn;
   void *instance;
 }TaskHandle_t;
+using StaticTask_t = TaskHandle_t;
+using StackType_t = uint32_t;
 
 /* Task states returned by eTaskGetState. */
 enum eTaskState
@@ -103,6 +105,10 @@ is used in assert() statements. */
 #define taskSCHEDULER_SUSPENDED   ( ( BaseType_t ) 0 )
 #define taskSCHEDULER_NOT_STARTED ( ( BaseType_t ) 1 )
 #define taskSCHEDULER_RUNNING	    ( ( BaseType_t ) 2 )
+void vPortEnterCritical();
+void vPortExitCritical();
+#define taskENTER_CRITICAL() vPortEnterCritical()
+#define taskEXIT_CRITICAL() vPortExitCritical()
 
 /* Used with the uxTaskGetSystemState() function to return the state of each task
 in the system. */
@@ -268,6 +274,25 @@ BaseType_t xTaskCreate(
   void * const pvParameters,
   UBaseType_t uxPriority,
   TaskHandle_t * const pxCreatedTask );
+
+inline TaskHandle_t xTaskCreateStatic(
+  TaskFunction_t pxTaskCode,
+  const char* const pcName,
+  const configSTACK_DEPTH_TYPE usStackDepth,
+  void* const pvParameters,
+  UBaseType_t uxPriority,
+  StackType_t* /*stackBuffer*/,
+  StaticTask_t* taskBuffer) {
+  if (xTaskCreate(pxTaskCode,
+                  pcName,
+                  usStackDepth,
+                  pvParameters,
+                  uxPriority,
+                  taskBuffer) == 0) {
+    return {};
+  }
+  return *taskBuffer;
+}
 
 /**
  * task. h

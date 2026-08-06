@@ -1,6 +1,7 @@
 #include "semphr.h"
 #include <SDL.h>
 #include <mutex>
+#include <chrono>
 #include <stdexcept>
 
 QueueHandle_t xSemaphoreCreateMutex() {
@@ -13,33 +14,31 @@ QueueHandle_t xSemaphoreCreateMutex() {
 
 BaseType_t xSemaphoreTake(SemaphoreHandle_t xSemaphore, TickType_t xTicksToWait) {
   Queue_t* pxQueue = (Queue_t*) xSemaphore;
-  constexpr TickType_t DELAY_BETWEEN_ATTEMPTS = 25;
-  do {
-    if (pxQueue->mutex.try_lock()) {
-      std::lock_guard<std::mutex> lock(pxQueue->mutex, std::adopt_lock);
-      if (pxQueue->queue.empty()) {
-        pxQueue->queue.push_back(0);
-        return true;
-      }
-    }
-    // Prevent underflow
-    if (xTicksToWait >= DELAY_BETWEEN_ATTEMPTS) {
-      // Someone else is modifying queue, wait for them to finish
-      SDL_Delay(DELAY_BETWEEN_ATTEMPTS);
-      xTicksToWait -= DELAY_BETWEEN_ATTEMPTS;
-    }
-  } while (xTicksToWait >= DELAY_BETWEEN_ATTEMPTS);
-  return false;
+  std::unique_lock<std::mutex> lock(pxQueue->mutex);
+  const auto available = [pxQueue] { return pxQueue->queue.empty(); };
+  if (xTicksToWait == portMAX_DELAY) {
+    pxQueue->condition.wait(lock, available);
+  } else if (!pxQueue->condition.wait_for(
+               lock,
+               std::chrono::milliseconds(xTicksToWait),
+               available)) {
+    return pdFALSE;
+  }
+  pxQueue->queue.push_back(0);
+  return pdTRUE;
 }
 
 BaseType_t xSemaphoreGive(SemaphoreHandle_t xSemaphore) {
   Queue_t* pxQueue = (Queue_t*) xSemaphore;
-  std::lock_guard<std::mutex> guard(pxQueue->mutex);
-  if (pxQueue->queue.size() != 1) {
-    throw std::runtime_error("Mutex released without being held");
+  {
+    std::lock_guard<std::mutex> guard(pxQueue->mutex);
+    if (pxQueue->queue.size() != 1) {
+      throw std::runtime_error("Mutex released without being held");
+    }
+    pxQueue->queue.pop_back();
   }
-  pxQueue->queue.pop_back();
-  return true;
+  pxQueue->condition.notify_one();
+  return pdTRUE;
 }
 
 SemaphoreHandle_t xSemaphoreCreateRecursiveMutex() {

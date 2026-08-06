@@ -1,6 +1,7 @@
 #pragma once
 
 #include <mutex>
+#include <condition_variable>
 #include <vector>
 
 /**
@@ -9,9 +10,11 @@
  * xQueueSend(), xQueueReceive(), etc.
  */
 typedef void* QueueHandle_t;
+struct StaticQueue_t {};
 
 struct Queue_t {
   std::mutex mutex;
+  std::condition_variable condition;
   std::vector<uint8_t> queue;
 
   Queue_t() {
@@ -30,6 +33,12 @@ struct Queue_t {
 // using QueueHandle_t = std::vector<uint8_t>;
 
 QueueHandle_t xQueueCreate(const UBaseType_t uxQueueLength, const UBaseType_t uxItemSize);
+inline QueueHandle_t xQueueCreateStatic(const UBaseType_t uxQueueLength,
+                                       const UBaseType_t uxItemSize,
+                                       uint8_t* /*storage*/,
+                                       StaticQueue_t* /*buffer*/) {
+  return xQueueCreate(uxQueueLength, uxItemSize);
+}
 BaseType_t xQueueSend(QueueHandle_t xQueue, const void* const pvItemToQueue, TickType_t xTicksToWait);
 BaseType_t xQueueSendFromISR(QueueHandle_t xQueue, const void* const pvItemToQueue, BaseType_t* xHigherPriorityTaskWoken);
 BaseType_t xQueueReceive(QueueHandle_t xQueue, void* const pvBuffer, TickType_t xTicksToWait);

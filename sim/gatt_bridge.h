@@ -40,6 +40,7 @@
 //  32     Task Read             000a0003    write (select index) / read (record)
 //  33     Companion Status      000b0001    public read
 //  34     Companion Verify      000b0002    authenticated read
+//  35     Family State Status   000c0001    public read
 //
 // Single client at a time: additional clients receive a busy frame and are
 // closed without disturbing the incumbent. The loopback-only BLE test-control
