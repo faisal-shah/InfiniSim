@@ -476,6 +476,13 @@ if(BUILD_TESTING)
     set_tests_properties(infinisim-gatt-bridge-smoke PROPERTIES
       WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
     )
+    add_test(NAME infinisim-storage-boot-watchdog
+      COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/StorageBootWatchdog.py" "$<TARGET_FILE:infinisim>"
+    )
+    set_tests_properties(infinisim-storage-boot-watchdog PROPERTIES
+      WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
+      TIMEOUT 20
+    )
   endif()
 endif()
 
